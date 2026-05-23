@@ -66,7 +66,12 @@ from handlers.reports import (
     report_nav_callback,
 )
 from handlers.tenants import tenants_command, tenant_detail_callback
-from handlers.reminders import set_reminder_command, set_timezone_callback
+from handlers.reminders import (
+    set_reminder_command,
+    set_day_before_command,
+    set_reminder_hour_callback,
+    set_day_before_hour_callback,
+)
 from handlers.text import free_text_handler
 from handlers.voice import voice_message_handler
 from handlers.targeting import (
@@ -276,8 +281,12 @@ async def main_callback_dispatcher(update: Update, context) -> None:
     # ── Tenants / Reminders ───────────────────────────────────
     elif data.startswith("tenant_detail_"):
         await tenant_detail_callback(update, context)
-    elif data.startswith("tz_set_"):
-        await set_timezone_callback(update, context)
+    elif data.startswith("rem_hour_"):
+        await set_reminder_hour_callback(update, context)
+    elif data.startswith("rem_daybefore_"):
+        await set_day_before_hour_callback(update, context)
+    elif data == "rem_set_daybefore":
+        await set_day_before_command(update, context)
 
     # ── Targeting callbacks ───────────────────────────────────
     elif data == "tgt_clients":
