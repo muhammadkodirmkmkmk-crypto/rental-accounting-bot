@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import date
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -6,6 +7,20 @@ from telegram.ext import ContextTypes
 import sheets
 from database import get_state, set_state, clear_state, get_user_settings
 from handlers.start import main_menu_keyboard
+
+
+def _parse_amount(text: str) -> float:
+    """Parse amount from user input, stripping currency symbols and spaces.
+    Accepts: '300', '300.50', '300,50', '$300', '300$', '300 USD', '1 000' etc.
+    """
+    cleaned = re.sub(r"[^\d.,]", "", text.replace(" ", ""))
+    if not cleaned:
+        raise ValueError(f"No numeric content in: {text!r}")
+    cleaned = cleaned.replace(",", ".")
+    if cleaned.count(".") > 1:
+        parts = cleaned.rsplit(".", 1)
+        cleaned = parts[0].replace(".", "") + "." + parts[1]
+    return float(cleaned)
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +125,9 @@ async def payment_amount_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     try:
-        amount = float(update.message.text.strip().replace(",", "."))
+        amount = _parse_amount(update.message.text.strip())
     except ValueError:
-        await update.message.reply_text("Введите корректное число.")
+        await update.message.reply_text("Введите сумму числом, например: 300 или 300.50")
         return
 
     data["received_amount"] = amount
