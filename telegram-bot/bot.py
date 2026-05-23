@@ -41,6 +41,8 @@ from handlers.objects import (
     obj_no_end_date_callback,
     obj_discount_yes_callback,
     obj_discount_no_callback,
+    obj_skip_field_callback,
+    obj_vacant_callback,
 )
 from handlers.payments import (
     record_payment_command,
@@ -256,6 +258,10 @@ async def main_callback_dispatcher(update: Update, context) -> None:
         await obj_discount_yes_callback(update, context)
     elif data == "obj_discount_no":
         await obj_discount_no_callback(update, context)
+    elif data == "obj_skip_field":
+        await obj_skip_field_callback(update, context)
+    elif data == "obj_vacant":
+        await obj_vacant_callback(update, context)
 
     # ── Payment callbacks ─────────────────────────────────────
     elif data.startswith("pay_obj_"):
