@@ -79,7 +79,7 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     month_label = f"{MONTH_NAMES_RU.get(month, str(month))} {year}"
 
     text = (
-        f"📊 *Сводка — {month_label}*\n"
+        f"Амирхон ака, вот сводка за {month_label} 📊\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Доход: *{sym}{total_income:.2f}* / {sym}{total_expected:.2f} ожидалось\n"
         f"🔧 Расходы: *{sym}{total_expenses:.2f}*\n"
