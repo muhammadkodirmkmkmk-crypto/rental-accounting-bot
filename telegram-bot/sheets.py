@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 SHEET_HEADERS: dict[str, list[str]] = {
     "Objects": [
         "id", "name", "address", "tenant_name", "tenant_phone",
-        "rent_amount", "initial_price", "discount_end",
-        "currency", "payment_day", "lease_start", "lease_end", "status",
+        "rent_amount", "currency", "payment_day", "lease_start", "lease_end", "status",
     ],
     "Payments": [
         "date", "object_id", "object_name", "expected_amount",
@@ -162,6 +161,49 @@ def clear_all_data() -> bool:
     return success
 
 
+def clean_empty_name_rows(sheet_name: str, name_col_index: int = 1) -> int:
+    """
+    Delete data rows where the name column (default col B, index 1) is empty or whitespace.
+    Returns the number of rows deleted.
+    Rows are deleted bottom-up to preserve indices.
+    """
+    try:
+        ws = _get_or_create_sheet(sheet_name)
+        all_vals = ws.get_all_values()
+        if len(all_vals) <= 1:
+            return 0  # header only or empty
+        deleted = 0
+        # Iterate backwards so row indices stay valid as we delete
+        for i in range(len(all_vals) - 1, 0, -1):
+            row = all_vals[i]
+            cell = row[name_col_index].strip() if len(row) > name_col_index else ""
+            if not cell:
+                ws.delete_rows(i + 1)  # gspread rows are 1-indexed
+                deleted += 1
+        if deleted:
+            logger.info("clean_empty_name_rows('%s'): removed %d empty rows", sheet_name, deleted)
+        return deleted
+    except Exception as e:
+        logger.error("clean_empty_name_rows('%s') error: %s", sheet_name, e)
+        return 0
+
+
+def clean_all_sheets() -> dict[str, int]:
+    """
+    Remove rows with empty name/key column from every relevant sheet.
+    Returns a dict of {sheet_name: rows_deleted}.
+    Column indices (0-based): Objects B=1, Payments date=0 (skip), Targeting_Clients B=1
+    """
+    results: dict[str, int] = {}
+    # Sheets with a meaningful "name" column at index 1
+    for sheet in ("Objects", "Targeting_Clients"):
+        results[sheet] = clean_empty_name_rows(sheet, name_col_index=1)
+    # Payments/Expenses: clean rows where date (col A) is empty
+    for sheet in ("Payments", "Expenses", "Targeting_Payments", "Targeting_Expenses", "Personal"):
+        results[sheet] = clean_empty_name_rows(sheet, name_col_index=0)
+    return results
+
+
 # ── Objects ───────────────────────────────────────────────────
 
 def get_objects() -> list[dict]:
@@ -175,6 +217,8 @@ def get_active_objects() -> list[dict]:
 def add_object(data: dict) -> bool:
     objects = get_objects()
     new_id = str(len(objects) + 1)
+    # Columns: A=id B=name C=address D=tenant_name E=tenant_phone
+    #          F=rent_amount G=currency H=payment_day I=lease_start J=lease_end K=status
     row = [
         new_id,
         data.get("name", ""),
@@ -182,8 +226,6 @@ def add_object(data: dict) -> bool:
         data.get("tenant_name", ""),
         data.get("tenant_phone", ""),
         data.get("rent_amount", ""),
-        data.get("initial_price", ""),
-        data.get("discount_end", ""),
         data.get("currency", config.DEFAULT_CURRENCY),
         data.get("payment_day", ""),
         data.get("lease_start", ""),
