@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, date, timedelta
 import pytz
@@ -39,7 +40,7 @@ async def _send_to_all(bot: Bot, text: str) -> None:
 async def check_payment_reminders(bot: Bot, days_ahead: int = 1) -> None:
     """Send reminders for payments due in `days_ahead` days."""
     today = _today()
-    due = analytics.payments_due_in_days(days_ahead)
+    due = await asyncio.to_thread(analytics.payments_due_in_days, days_ahead)
     for obj in due:
         sym = config.CURRENCY_SYMBOL
         payment_day = int(obj.get("payment_day", 1))
@@ -75,7 +76,7 @@ async def check_payment_reminders(bot: Bot, days_ahead: int = 1) -> None:
 
 
 async def check_payment_day(bot: Bot) -> None:
-    due_today = analytics.payments_due_in_days(0)
+    due_today = await asyncio.to_thread(analytics.payments_due_in_days, 0)
     for obj in due_today:
         obj_id = obj.get("id")
         from handlers.objects import get_current_rent
@@ -96,7 +97,7 @@ async def check_payment_day(bot: Bot) -> None:
 
 
 async def check_overdue_payments(bot: Bot) -> None:
-    overdue = analytics.payments_overdue(3)
+    overdue = await asyncio.to_thread(analytics.payments_overdue, 3)
     for obj in overdue:
         sym = config.CURRENCY_SYMBOL
         from handlers.objects import get_current_rent
@@ -112,7 +113,7 @@ async def check_overdue_payments(bot: Bot) -> None:
 
 
 async def check_lease_expirations(bot: Bot) -> None:
-    expiring = analytics.leases_expiring_soon(30)
+    expiring = await asyncio.to_thread(analytics.leases_expiring_soon, 30)
     for obj in expiring:
         msg = (
             f"Амирхон ака, договор скоро истекает 📋\n\n"
@@ -127,7 +128,7 @@ async def check_lease_expirations(bot: Bot) -> None:
 async def send_monthly_summary(bot: Bot) -> None:
     today = _today()
     sym = config.CURRENCY_SYMBOL
-    report = analytics.build_monthly_report(today.year, today.month, sym)
+    report = await asyncio.to_thread(analytics.build_monthly_report, today.year, today.month, sym)
     month_names = ["январь", "февраль", "март", "апрель", "май", "июнь",
                    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]
     month_name = month_names[today.month - 1]
@@ -191,6 +192,7 @@ def start_scheduler(bot: Bot, timezone: str = "Asia/Tashkent") -> AsyncIOSchedul
         id="payment_day_reminder",
         replace_existing=True,
     )
+    # Overdue check at 09:30 Tashkent
     _scheduler.add_job(
         check_overdue_payments,
         CronTrigger(hour=9, minute=30, timezone=_tz),
@@ -198,6 +200,7 @@ def start_scheduler(bot: Bot, timezone: str = "Asia/Tashkent") -> AsyncIOSchedul
         id="overdue_reminder",
         replace_existing=True,
     )
+    # Lease expiry check at 09:00 Tashkent
     _scheduler.add_job(
         check_lease_expirations,
         CronTrigger(hour=9, minute=0, timezone=_tz),
@@ -205,6 +208,7 @@ def start_scheduler(bot: Bot, timezone: str = "Asia/Tashkent") -> AsyncIOSchedul
         id="lease_expiry_reminder",
         replace_existing=True,
     )
+    # Monthly summary on last day at 18:00 Tashkent
     _scheduler.add_job(
         send_monthly_summary,
         CronTrigger(day="last", hour=18, minute=0, timezone=_tz),
@@ -212,6 +216,7 @@ def start_scheduler(bot: Bot, timezone: str = "Asia/Tashkent") -> AsyncIOSchedul
         id="monthly_summary",
         replace_existing=True,
     )
+    # Retry queued writes every N seconds
     _scheduler.add_job(
         retry_queued_writes,
         "interval",
@@ -232,14 +237,17 @@ def reschedule_reminders(bot: Bot, hour: int, day_before_hour: int) -> None:
         logger.warning("Scheduler not running — cannot reschedule")
         return
 
+    # 3-day reminder keeps its fixed 09:00 schedule (not user-configurable)
     _scheduler.reschedule_job(
         "check_payment_reminders",
-        trigger=CronTrigger(hour=day_before_hour, minute=0, timezone=_tz),
+        trigger=CronTrigger(hour=9, minute=0, timezone=_tz),
     )
+    # 1-day reminder uses user-chosen day_before_hour
     _scheduler.reschedule_job(
         "day_before_reminder",
         trigger=CronTrigger(hour=day_before_hour, minute=0, timezone=_tz),
     )
+    # Payment day notification uses user-chosen hour
     _scheduler.reschedule_job(
         "payment_day_reminder",
         trigger=CronTrigger(hour=hour, minute=0, timezone=_tz),
