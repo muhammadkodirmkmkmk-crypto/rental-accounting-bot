@@ -18,17 +18,27 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-SHEET_HEADERS = {
+SHEET_HEADERS: dict[str, list[str]] = {
     "Objects": [
         "id", "name", "address", "tenant_name", "tenant_phone",
-        "rent_amount", "currency", "payment_day", "lease_start", "lease_end", "status",
+        "rent_amount", "initial_price", "discount_end",
+        "currency", "payment_day", "lease_start", "lease_end", "status",
     ],
     "Payments": [
         "date", "object_id", "object_name", "expected_amount",
         "received_amount", "difference", "status", "note",
     ],
-    "Expenses": ["date", "object_id", "category", "amount", "description"],
+    "Expenses": ["date", "object_id", "object_name", "category", "amount", "description"],
     "Summary": ["month", "object", "income", "expenses", "net_profit", "occupancy_rate"],
+    "Targeting_Clients": [
+        "id", "name", "monthly_fee", "currency", "payment_day", "start_date", "status",
+    ],
+    "Targeting_Payments": [
+        "date", "client_id", "client_name", "expected_amount",
+        "received_amount", "difference", "status", "note",
+    ],
+    "Targeting_Expenses": ["date", "client_id", "category", "amount", "description"],
+    "Personal": ["date", "type", "category", "amount", "description"],
 }
 
 _gc: gspread.Client | None = None
@@ -57,8 +67,10 @@ def _get_or_create_sheet(name: str) -> gspread.Worksheet:
     try:
         ws = ss.worksheet(name)
     except gspread.WorksheetNotFound:
-        ws = ss.add_worksheet(title=name, rows=1000, cols=20)
-        ws.append_row(SHEET_HEADERS[name])
+        ws = ss.add_worksheet(title=name, rows=1000, cols=25)
+        headers = SHEET_HEADERS.get(name, [])
+        if headers:
+            ws.append_row(headers)
         logger.info("Created sheet '%s'", name)
     return ws
 
@@ -119,6 +131,26 @@ def update_cell_by_key(sheet_name: str, key_col: str, key_val: str,
         return False
 
 
+def clear_all_data() -> bool:
+    """Clear all data rows from all sheets (keep headers). Used by /delete command."""
+    global _spreadsheet
+    _spreadsheet = None  # force reconnect
+    success = True
+    for name in SHEET_HEADERS:
+        try:
+            ws = _get_or_create_sheet(name)
+            all_vals = ws.get_all_values()
+            if len(all_vals) > 1:
+                ws.delete_rows(2, len(all_vals))
+                logger.info("Cleared sheet '%s' (%d rows)", name, len(all_vals) - 1)
+        except Exception as e:
+            logger.error("Failed to clear sheet '%s': %s", name, e)
+            success = False
+    return success
+
+
+# ── Objects ───────────────────────────────────────────────────
+
 def get_objects() -> list[dict]:
     return get_all_records("Objects")
 
@@ -137,6 +169,8 @@ def add_object(data: dict) -> bool:
         data.get("tenant_name", ""),
         data.get("tenant_phone", ""),
         data.get("rent_amount", ""),
+        data.get("initial_price", ""),
+        data.get("discount_end", ""),
         data.get("currency", config.DEFAULT_CURRENCY),
         data.get("payment_day", ""),
         data.get("lease_start", ""),
@@ -145,6 +179,8 @@ def add_object(data: dict) -> bool:
     ]
     return append_row("Objects", row)
 
+
+# ── Payments ──────────────────────────────────────────────────
 
 def record_payment(data: dict) -> bool:
     expected = float(data.get("expected_amount", 0))
@@ -164,16 +200,119 @@ def record_payment(data: dict) -> bool:
     return append_row("Payments", row)
 
 
+# ── Expenses ──────────────────────────────────────────────────
+
 def record_expense(data: dict) -> bool:
     row = [
         data.get("date", date.today().strftime("%d.%m.%Y")),
         data.get("object_id", ""),
+        data.get("object_name", ""),
         data.get("category", ""),
         data.get("amount", ""),
         data.get("description", ""),
     ]
     return append_row("Expenses", row)
 
+
+# ── Targeting ─────────────────────────────────────────────────
+
+def get_target_clients() -> list[dict]:
+    return get_all_records("Targeting_Clients")
+
+
+def add_target_client(data: dict) -> bool:
+    clients = get_target_clients()
+    new_id = str(len(clients) + 1)
+    row = [
+        new_id,
+        data.get("name", ""),
+        data.get("monthly_fee", ""),
+        data.get("currency", config.DEFAULT_CURRENCY),
+        data.get("payment_day", ""),
+        data.get("start_date", ""),
+        data.get("status", "active"),
+    ]
+    return append_row("Targeting_Clients", row)
+
+
+def record_target_payment(data: dict) -> bool:
+    row = [
+        data.get("date", date.today().strftime("%d.%m.%Y")),
+        data.get("client_id", ""),
+        data.get("client_name", ""),
+        data.get("expected_amount", 0),
+        data.get("received_amount", 0),
+        data.get("difference", 0),
+        data.get("status", "paid"),
+        data.get("note", ""),
+    ]
+    return append_row("Targeting_Payments", row)
+
+
+def record_target_expense(data: dict) -> bool:
+    row = [
+        data.get("date", date.today().strftime("%d.%m.%Y")),
+        data.get("client_id", ""),
+        data.get("category", ""),
+        data.get("amount", 0),
+        data.get("description", ""),
+    ]
+    return append_row("Targeting_Expenses", row)
+
+
+def get_target_payments_for_month(year: int, month: int) -> list[dict]:
+    all_p = get_all_records("Targeting_Payments")
+    result = []
+    for p in all_p:
+        try:
+            d = datetime.strptime(str(p.get("date", "")), "%d.%m.%Y")
+            if d.year == year and d.month == month:
+                result.append(p)
+        except ValueError:
+            pass
+    return result
+
+
+def get_target_expenses_for_month(year: int, month: int) -> list[dict]:
+    all_e = get_all_records("Targeting_Expenses")
+    result = []
+    for e in all_e:
+        try:
+            d = datetime.strptime(str(e.get("date", "")), "%d.%m.%Y")
+            if d.year == year and d.month == month:
+                result.append(e)
+        except ValueError:
+            pass
+    return result
+
+
+# ── Personal ──────────────────────────────────────────────────
+
+def record_personal(data: dict) -> bool:
+    row = [
+        data.get("date", date.today().strftime("%d.%m.%Y")),
+        data.get("type", "expense"),
+        data.get("category", "other"),
+        data.get("amount", 0),
+        data.get("description", ""),
+    ]
+    return append_row("Personal", row)
+
+
+def get_personal_for_month(year: int, month: int) -> list[dict]:
+    all_r = get_all_records("Personal")
+    result = []
+    for r in all_r:
+        try:
+            d = datetime.strptime(str(r.get("date", "")), "%d.%m.%Y")
+            if d.year == year and d.month == month:
+                result.append(r)
+        except ValueError:
+            pass
+    return result
+
+
+# ── Shared helpers ────────────────────────────────────────────
 
 def get_payments_for_month(year: int, month: int) -> list[dict]:
     all_payments = get_all_records("Payments")
