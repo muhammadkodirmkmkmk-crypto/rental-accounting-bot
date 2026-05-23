@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -15,7 +16,7 @@ async def tenants_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.callback_query.answer()
         msg = update.callback_query.message
 
-    objects = sheets.get_objects()
+    objects = await asyncio.to_thread(sheets.get_objects)
     if not objects:
         await msg.reply_text(
             "Арендаторы не найдены. Сначала добавьте объект!",
@@ -44,14 +45,14 @@ async def tenant_detail_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     obj_id = query.data.replace("tenant_detail_", "")
 
-    objects = sheets.get_objects()
+    objects = await asyncio.to_thread(sheets.get_objects)
     obj = next((o for o in objects if str(o.get("id")) == str(obj_id)), None)
     if not obj:
         await query.edit_message_text("Объект не найден.")
         return
 
-    rel = analytics.payment_reliability(obj_id)
-    payments = sheets.get_all_records("Payments")
+    rel = await asyncio.to_thread(analytics.payment_reliability, obj_id)
+    payments = await asyncio.to_thread(sheets.get_all_records, "Payments")
     obj_payments = [p for p in payments if str(p.get("object_id")) == str(obj_id)]
     recent = sorted(obj_payments, key=lambda x: x.get("date", ""), reverse=True)[:5]
 
