@@ -33,6 +33,7 @@ SHEET_HEADERS: dict[str, list[str]] = {
     ],
     "Targeting_Expenses": ["date", "client_id", "category", "amount", "description"],
     "Personal": ["date", "type", "category", "amount", "description"],
+    "Reminders": ["id", "user_id", "datetime", "text", "recurring", "status"],
 }
 
 _gc: gspread.Client | None = None
@@ -354,3 +355,45 @@ def get_expenses_for_month(year: int, month: int) -> list[dict]:
 
 def spreadsheet_url() -> str:
     return f"https://docs.google.com/spreadsheets/d/{config.SPREADSHEET_ID}"
+
+
+# ── Reminders ─────────────────────────────────────────────────
+
+def add_reminder(user_id: int, datetime_str: str, text: str, recurring: str = "none") -> str:
+    """Append a reminder row and return its ID (empty string on failure)."""
+    reminders = get_all_records("Reminders")
+    new_id = str(len(reminders) + 1)
+    row = [new_id, str(user_id), datetime_str, text, recurring, "active"]
+    ok = append_row("Reminders", row)
+    return new_id if ok else ""
+
+
+def get_reminders(user_id: int | None = None, status: str = "active") -> list[dict]:
+    """Return reminders filtered by user_id and/or status."""
+    all_r = get_all_records("Reminders")
+    result = []
+    for r in all_r:
+        if status and str(r.get("status", "active")) != status:
+            continue
+        if user_id is not None and str(r.get("user_id", "")) != str(user_id):
+            continue
+        result.append(r)
+    return result
+
+
+def update_reminder_status(reminder_id: str, new_status: str) -> bool:
+    """Update the status cell of a specific reminder row."""
+    try:
+        ws = _get_or_create_sheet("Reminders")
+        rows = ws.get_all_values()
+        for i, row in enumerate(rows):
+            if i == 0:
+                continue
+            if row and str(row[0]) == str(reminder_id):
+                ws.update_cell(i + 1, 6, new_status)
+                return True
+        logger.warning("Reminder id=%s not found for status update", reminder_id)
+        return False
+    except Exception as e:
+        logger.error("update_reminder_status error: %s", e)
+        return False
