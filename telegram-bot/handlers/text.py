@@ -24,12 +24,9 @@ async def free_text_handler(
     user_id = update.effective_user.id
     state, _ = get_state(user_id)
 
-    if state and text is None:
-        return
+    msg_text = text or (update.message.text.strip() if update.message and update.message.text else "")
 
-    msg_text = text or update.message.text.strip()
-
-    # ── /delete confirmation ──────────────────────────────────
+    # ── /delete confirmation — must run BEFORE any early-return guard ──
     if state == "confirm_delete":
         if msg_text.upper() in ("ДА", "DA", "YES"):
             await update.message.reply_text("Амирхон ака, удаляю все данные... 🗑")
@@ -49,6 +46,10 @@ async def free_text_handler(
                 "Амирхон ака, удаление отменено ❌",
                 reply_markup=module_menu_keyboard(),
             )
+        return
+
+    # ── Skip NLP/greeting if we're inside a known wizard state ──
+    if state and text is None:
         return
 
     # ── Greeting → module menu ────────────────────────────────
