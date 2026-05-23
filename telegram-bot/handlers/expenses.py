@@ -157,7 +157,7 @@ async def _save_expense(msg, user_id: int, data: dict) -> None:
     ok = await asyncio.to_thread(sheets.record_expense, data)
     clear_state(user_id)
     sym = data.get("symbol", "$")
-    status_text = "✅ Расход записан!" if ok else "⚠️ Сохранено локально (синхронизируется)."
+    status_text = "Амирхон ака, расход записан! ✅" if ok else "Амирхон ака, сохранено локально ⚠️"
     await msg.reply_text(
         f"{status_text}\n\n"
         f"🏠 {data.get('object_name')}\n"
