@@ -1,22 +1,197 @@
 import asyncio
 import logging
 import re
-from datetime import date
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from datetime import datetime
+import pytz
+from telegram import Update
 from telegram.ext import ContextTypes
 
 import sheets
-import nlp
 import analytics
+import claude_ai
 from database import get_state, get_user_settings, clear_state, save_user_settings
 from handlers.start import main_menu_keyboard, module_menu_keyboard
 
 logger = logging.getLogger(__name__)
 
+_TZ = pytz.timezone("Asia/Tashkent")
+
 GREETING_PATTERN = re.compile(
     r"^(привет|прив|салом|hello|hi|hey|хай|здравствуй|добрый день|добрый вечер|доброе утро|меню|menu|старт|start)[\s,!.]*$",
     re.IGNORECASE,
 )
+
+
+async def _get_context() -> tuple[list[dict], list[dict], list[dict]]:
+    """Fetch objects, clients, and current-month payments in parallel for Claude context."""
+    now = datetime.now(_TZ)
+    objects, clients, payments = await asyncio.gather(
+        asyncio.to_thread(sheets.get_objects),
+        asyncio.to_thread(sheets.get_target_clients),
+        asyncio.to_thread(sheets.get_payments_for_month, now.year, now.month),
+    )
+    return objects, clients, payments
+
+
+async def _handle_action(
+    action_data: dict,
+    objects: list[dict],
+    reply_msg,
+    settings: dict,
+) -> None:
+    """Execute a structured action returned by Claude."""
+    action = action_data.get("action")
+    sym = settings.get("symbol", "$")
+    today_str = datetime.now(_TZ).strftime("%d.%m.%Y")
+    today = datetime.now(_TZ)
+
+    if action == "record_payment":
+        obj_name = str(action_data.get("object_name") or "")
+        amount = action_data.get("amount")
+
+        if not obj_name or not amount:
+            await reply_msg.reply_text(
+                "Амирхон ака, уточните название объекта и сумму платежа.",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+
+        obj = next(
+            (o for o in objects
+             if obj_name.lower() in o.get("name", "").lower()
+             or o.get("name", "").lower() in obj_name.lower()),
+            None,
+        )
+        if not obj:
+            names = "\n".join(f"• {o.get('name')}" for o in objects) or "(нет объектов)"
+            await reply_msg.reply_text(
+                f"Амирхон ака, объект «{obj_name}» не найден.\n\n"
+                f"Доступные объекты:\n{names}",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+
+        data = {
+            "object_id": obj.get("id"),
+            "object_name": obj.get("name"),
+            "expected_amount": obj.get("rent_amount"),
+            "received_amount": amount,
+            "note": "Записано через AI",
+            "date": today_str,
+        }
+        ok = await asyncio.to_thread(sheets.record_payment, data)
+        diff = float(amount) - float(obj.get("rent_amount", 0))
+        if diff < 0:
+            diff_text = f"\n⚠️ Недоплата: {sym}{abs(diff):.0f}"
+        elif diff > 0:
+            diff_text = f"\n➕ Переплата: {sym}{diff:.0f}"
+        else:
+            diff_text = ""
+        await reply_msg.reply_text(
+            f"{'Амирхон ака, платёж записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
+            f"🏠 {obj.get('name')}: {sym}{float(amount):.0f}{diff_text}\n"
+            f"📅 {today_str}",
+            reply_markup=main_menu_keyboard(),
+        )
+
+    elif action == "record_expense":
+        obj_name = action_data.get("object_name")
+        amount = action_data.get("amount")
+        category = action_data.get("category", "other")
+
+        if not amount:
+            await reply_msg.reply_text(
+                "Амирхон ака, уточните сумму расхода.",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+
+        obj = None
+        if obj_name:
+            obj = next(
+                (o for o in objects
+                 if str(obj_name).lower() in o.get("name", "").lower()
+                 or o.get("name", "").lower() in str(obj_name).lower()),
+                None,
+            )
+        data = {
+            "object_id": obj.get("id") if obj else "general",
+            "object_name": obj.get("name") if obj else "Общие",
+            "category": category,
+            "amount": amount,
+            "description": "Записано через AI",
+            "date": today_str,
+        }
+        ok = await asyncio.to_thread(sheets.record_expense, data)
+        await reply_msg.reply_text(
+            f"{'Амирхон ака, расход записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
+            f"🏠 {data['object_name']}\n"
+            f"📂 {category}: {sym}{float(amount):.0f}\n"
+            f"📅 {today_str}",
+            reply_markup=main_menu_keyboard(),
+        )
+
+    elif action == "get_report":
+        month = int(action_data.get("month", today.month))
+        year = int(action_data.get("year", today.year))
+        report = await asyncio.to_thread(analytics.build_monthly_report, year, month, sym)
+        await reply_msg.reply_text(report, reply_markup=main_menu_keyboard())
+
+    elif action == "get_summary":
+        report = await asyncio.to_thread(
+            analytics.build_monthly_report, today.year, today.month, sym
+        )
+        await reply_msg.reply_text(
+            f"Амирхон ака, вот сводка за текущий месяц 📊\n\n{report}",
+            reply_markup=main_menu_keyboard(),
+        )
+
+    elif action == "list_objects":
+        if not objects:
+            await reply_msg.reply_text(
+                "Амирхон ака, объекты не найдены.",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+        lines = ["Амирхон ака, вот ваши объекты 🏠\n"]
+        for o in objects:
+            lines.append(
+                f"🏠 *{o.get('name')}*\n"
+                f"   👤 {o.get('tenant_name', '—')} | 📞 {o.get('tenant_phone', '—')}\n"
+                f"   💰 {sym}{o.get('rent_amount', 0)}/мес | 📅 {o.get('payment_day', '?')} числа"
+            )
+        await reply_msg.reply_text(
+            "\n\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard(),
+        )
+
+    elif action == "list_tenants":
+        tenants = [o for o in objects if o.get("tenant_name")]
+        if not tenants:
+            await reply_msg.reply_text(
+                "Амирхон ака, арендаторы не найдены.",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+        lines = ["Амирхон ака, вот ваши арендаторы 👥\n"]
+        for o in tenants:
+            lines.append(
+                f"👤 *{o.get('tenant_name')}*\n"
+                f"   🏠 {o.get('name')} | 📞 {o.get('tenant_phone', '—')}\n"
+                f"   💰 {sym}{o.get('rent_amount', 0)}/мес"
+            )
+        await reply_msg.reply_text(
+            "\n\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard(),
+        )
+
+    else:
+        await reply_msg.reply_text(
+            f"Амирхон ака, не могу выполнить действие «{action}».",
+            reply_markup=module_menu_keyboard(),
+        )
 
 
 async def free_text_handler(
@@ -25,9 +200,11 @@ async def free_text_handler(
     user_id = update.effective_user.id
     state, _ = get_state(user_id)
 
-    msg_text = text or (update.message.text.strip() if update.message and update.message.text else "")
+    msg_text = text or (
+        update.message.text.strip() if update.message and update.message.text else ""
+    )
 
-    # ── /delete confirmation — must run BEFORE any early-return guard ──
+    # ── /delete confirmation ──────────────────────────────────
     if state == "confirm_delete":
         if msg_text.upper() in ("ДА", "DA", "YES"):
             await update.message.reply_text("Амирхон ака, удаляю все данные... 🗑")
@@ -48,11 +225,11 @@ async def free_text_handler(
             )
         return
 
-    # ── Skip NLP/greeting if we're inside a known wizard state ──
+    # ── Skip AI if inside an active wizard step ──────────────
     if state and text is None:
         return
 
-    # ── Greeting → module menu ────────────────────────────────
+    # ── Greeting ──────────────────────────────────────────────
     if GREETING_PATTERN.match(msg_text):
         settings = get_user_settings(user_id)
         if not settings.get("setup_done"):
@@ -65,112 +242,40 @@ async def free_text_handler(
             )
         return
 
-    # ── NLP free text ─────────────────────────────────────────
-    objects = await asyncio.to_thread(sheets.get_objects)
-    known_objects = [o.get("name", "") for o in objects]
-    parsed = nlp.parse_free_text(msg_text, known_objects)
-
-    if not parsed:
-        await update.message.reply_text(
-            "Амирхон ака, не понял команду. Используйте меню или голосовое сообщение.\n\n"
-            "Примеры:\n"
-            "• «Квартира 1 заплатила 500»\n"
-            "• «Расход ремонт 150$»\n"
-            "• «Отчёт за март»",
-            reply_markup=module_menu_keyboard(),
-        )
-        return
-
-    intent = parsed.get("intent")
+    # ── Claude AI ─────────────────────────────────────────────
     settings = get_user_settings(user_id)
-    sym = settings.get("symbol", "$")
+
+    # Show typing while Claude thinks
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id, action="typing"
+    )
+
+    # Fetch Sheets context and call Claude concurrently
+    objects, clients, payments = await _get_context()
+
+    result = await asyncio.to_thread(
+        claude_ai.process_message,
+        msg_text,
+        objects,
+        clients,
+        payments,
+    )
+
     reply_msg = update.message
 
-    if intent == "record_payment":
-        obj_name = parsed.get("object_name")
-        amount = parsed.get("amount")
+    if result["type"] == "action":
+        await _handle_action(result, objects, reply_msg, settings)
 
-        if not obj_name or not amount:
-            await reply_msg.reply_text(
-                "Понял, что речь о платеже, но нужно указать объект и сумму.\n"
-                "Пример: «Квартира 1 заплатила 500» или /record_payment",
-                reply_markup=main_menu_keyboard(),
-            )
-            return
-
-        obj = next(
-            (o for o in objects if obj_name.lower() in o.get("name", "").lower()),
-            None,
-        )
-        if not obj:
-            await reply_msg.reply_text(
-                f"Объект «{obj_name}» не найден. Используйте /objects для просмотра.",
-                reply_markup=main_menu_keyboard(),
-            )
-            return
-
-        data = {
-            "object_id": obj.get("id"),
-            "object_name": obj.get("name"),
-            "expected_amount": obj.get("rent_amount"),
-            "received_amount": amount,
-            "note": "Записано через текст/голос",
-            "date": date.today().strftime("%d.%m.%Y"),
-        }
-        ok = await asyncio.to_thread(sheets.record_payment, data)
-        diff = amount - float(obj.get("rent_amount", 0))
-        diff_text = f"\n⚠️ Недоплата: {sym}{abs(diff):.2f}" if diff < 0 else ""
+    elif result["type"] == "text":
         await reply_msg.reply_text(
-            f"{'Амирхон ака, платёж записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
-            f"🏠 {obj.get('name')}: {sym}{amount:.2f}{diff_text}\n"
-            f"📅 {data['date']}",
-            reply_markup=main_menu_keyboard(),
+            result["content"],
+            reply_markup=module_menu_keyboard(),
         )
-
-    elif intent == "record_expense":
-        obj_name = parsed.get("object_name")
-        amount = parsed.get("amount")
-        category = parsed.get("category", "other")
-
-        if not amount:
-            await reply_msg.reply_text(
-                "Понял расход, но нужна сумма.\nПример: «Ремонт в офисе 150$»",
-                reply_markup=main_menu_keyboard(),
-            )
-            return
-
-        obj = None
-        if obj_name:
-            obj = next(
-                (o for o in objects if obj_name.lower() in o.get("name", "").lower()),
-                None,
-            )
-
-        data = {
-            "object_id": obj.get("id") if obj else "general",
-            "object_name": obj.get("name") if obj else "Общие",
-            "category": category,
-            "amount": amount,
-            "description": "Записано через текст/голос",
-            "date": date.today().strftime("%d.%m.%Y"),
-        }
-        ok = await asyncio.to_thread(sheets.record_expense, data)
-        await reply_msg.reply_text(
-            f"{'Амирхон ака, расход записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
-            f"📂 {category}: {sym}{amount:.2f}\n"
-            f"🏠 {data['object_name']}\n"
-            f"📅 {data['date']}",
-            reply_markup=main_menu_keyboard(),
-        )
-
-    elif intent == "report":
-        month = parsed.get("month")
-        year = parsed.get("year")
-        report = await asyncio.to_thread(analytics.build_monthly_report, year, month, sym)
-        await reply_msg.reply_text(report, reply_markup=main_menu_keyboard())
 
     else:
+        # Error fallback
         await reply_msg.reply_text(
-            "Используйте меню для навигации:",
+            f"Амирхон ака, {result.get('content', 'произошла ошибка AI')}.\n\n"
+            "Используйте меню или команды:",
             reply_markup=module_menu_keyboard(),
         )
