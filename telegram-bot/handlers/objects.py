@@ -389,12 +389,22 @@ async def objects_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     objects = await asyncio.to_thread(sheets.get_objects)
     if not objects:
-        await msg.reply_text(
-            "Объекты не найдены. Добавьте первый!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("➕ Добавить объект", callback_data="menu_add_object")]
-            ]),
-        )
+        if sheets.had_read_error("Objects"):
+            await msg.reply_text(
+                "⚠️ Не удалось загрузить список объектов (временная ошибка соединения).\n"
+                "Попробуйте ещё раз через несколько секунд.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Обновить", callback_data="menu_objects")],
+                    [InlineKeyboardButton("◀ Меню", callback_data="menu_main")],
+                ]),
+            )
+        else:
+            await msg.reply_text(
+                "Объекты не найдены. Добавьте первый!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("➕ Добавить объект", callback_data="menu_add_object")]
+                ]),
+            )
         return
 
     keyboard = []
@@ -408,9 +418,11 @@ async def objects_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         ])
     keyboard.append([InlineKeyboardButton("➕ Добавить объект", callback_data="menu_add_object")])
 
-    occ = analytics.occupancy_rate()
+    rented = sum(1 for o in objects if o.get("status", "").lower() == "rented")
+    total = len(objects)
+    rate = round(rented / total * 100, 1) if total else 0
     await msg.reply_text(
-        f"🏠 *Мои объекты* ({occ['rented']}/{occ['total']} занято, {occ['rate']}%)",
+        f"🏠 *Мои объекты* ({rented}/{total} занято, {rate}%)",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
