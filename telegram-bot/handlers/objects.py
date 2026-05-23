@@ -225,7 +225,8 @@ async def _save_object(msg, user_id: int, data: dict) -> None:
 
     if ok:
         await msg.reply_text(
-            f"✅ *{data['name']}* успешно добавлен!\n\n"
+            f"Амирхон ака, объект добавлен! ✅\n\n"
+            f"🏠 *{data['name']}*\n"
             f"📍 {data['address']}\n"
             f"👤 {data['tenant_name']} | {data['tenant_phone']}\n"
             f"{price_line}, день оплаты: {data['payment_day']}\n"
@@ -236,7 +237,7 @@ async def _save_object(msg, user_id: int, data: dict) -> None:
         )
     else:
         await msg.reply_text(
-            "⚠️ Сохранено локально (таблица недоступна, синхронизация выполнится автоматически).",
+            "Амирхон ака, сохранено локально ⚠️\n(таблица недоступна, синхронизация выполнится автоматически).",
             reply_markup=main_menu_keyboard(),
         )
 
@@ -346,14 +347,15 @@ async def obj_no_end_date_callback(update: Update, context: ContextTypes.DEFAULT
     if ok:
         sym = settings.get("symbol", "$")
         await query.edit_message_text(
-            f"✅ *{data['name']}* успешно добавлен (бессрочный договор)!\n\n"
+            f"Амирхон ака, объект добавлен! ✅\n\n"
+            f"🏠 *{data['name']}* (бессрочный договор)\n\n"
             f"🔗 [Открыть в таблице]({sheets.spreadsheet_url()})",
             parse_mode="Markdown",
             reply_markup=main_menu_keyboard(),
         )
     else:
         await query.edit_message_text(
-            "⚠️ Сохранено локально (таблица недоступна, синхронизация выполнится).",
+            "Амирхон ака, сохранено локально ⚠️\n(таблица недоступна, синхронизация выполнится).",
             reply_markup=main_menu_keyboard(),
         )
 
