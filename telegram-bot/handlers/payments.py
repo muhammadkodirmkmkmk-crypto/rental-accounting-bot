@@ -174,7 +174,7 @@ async def _save_payment(msg, user_id: int, data: dict, edit: bool = False) -> No
     ok = sheets.record_payment(data)
     clear_state(user_id)
     sym = data.get("symbol", "$")
-    status_text = "✅ Платёж записан!" if ok else "⚠️ Сохранено локально (синхронизируется с таблицей)."
+    status_text = "Амирхон ака, платёж записан! ✅" if ok else "Амирхон ака, сохранено локально ⚠️"
     text = (
         f"{status_text}\n\n"
         f"🏠 {data.get('object_name')}\n"
