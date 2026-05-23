@@ -225,6 +225,36 @@ def start_scheduler(bot: Bot, timezone: str = "Asia/Tashkent") -> AsyncIOSchedul
     return _scheduler
 
 
+def reschedule_reminders(bot: Bot, hour: int, day_before_hour: int) -> None:
+    """Reschedule reminder jobs with updated hours. Called when user changes reminder time."""
+    global _scheduler
+    if not _scheduler or not _scheduler.running:
+        logger.warning("Scheduler not running — cannot reschedule")
+        return
+
+    _scheduler.reschedule_job(
+        "check_payment_reminders",
+        trigger=CronTrigger(hour=day_before_hour, minute=0, timezone=_tz),
+    )
+    _scheduler.reschedule_job(
+        "day_before_reminder",
+        trigger=CronTrigger(hour=day_before_hour, minute=0, timezone=_tz),
+    )
+    _scheduler.reschedule_job(
+        "payment_day_reminder",
+        trigger=CronTrigger(hour=hour, minute=0, timezone=_tz),
+    )
+    _scheduler.reschedule_job(
+        "overdue_reminder",
+        trigger=CronTrigger(hour=hour, minute=30, timezone=_tz),
+    )
+    _scheduler.reschedule_job(
+        "lease_expiry_reminder",
+        trigger=CronTrigger(hour=hour, minute=0, timezone=_tz),
+    )
+    logger.info("Напоминания перенастроены: основные=%d:00, за день до=%d:00", hour, day_before_hour)
+
+
 def stop_scheduler() -> None:
     global _scheduler
     if _scheduler and _scheduler.running:
