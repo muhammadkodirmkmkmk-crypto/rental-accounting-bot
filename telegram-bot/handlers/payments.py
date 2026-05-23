@@ -131,7 +131,8 @@ async def payment_amount_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     data["received_amount"] = amount
-    expected = float(data.get("expected_amount", 0))
+    from utils import safe_float
+    expected = safe_float(data.get("expected_amount"))
     diff = amount - expected
     sym = data.get("symbol", "$")
 
