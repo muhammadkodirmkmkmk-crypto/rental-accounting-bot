@@ -117,6 +117,11 @@ def setup_logging() -> None:
 
 async def delete_command(update, context) -> None:
     user_id = update.effective_user.id
+    # Only the primary owner (first in allowed list) can delete all data
+    primary_owner = next(iter(config.ALLOWED_USER_IDS))
+    if user_id != primary_owner:
+        await update.message.reply_text("⛔ Только владелец бота может удалять все данные.")
+        return
     clear_state(user_id)
     set_state(user_id, "confirm_delete", {})
     await update.message.reply_text(
