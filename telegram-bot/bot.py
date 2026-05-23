@@ -125,11 +125,10 @@ async def delete_command(update, context) -> None:
     clear_state(user_id)
     set_state(user_id, "confirm_delete", {})
     await update.message.reply_text(
-        "⚠️ *Вы уверены?*\n\n"
-        "Это действие удалит *ВСЕ данные* из Google Sheets:\n"
+        "Амирхон ака, вы уверены? ⚠️\n\n"
+        "Это удалит *ВСЕ данные* из Google Sheets:\n"
         "• Все объекты аренды\n"
-        "• Все платежи\n"
-        "• Все расходы\n"
+        "• Все платежи и расходы\n"
         "• Клиентов таргета\n"
         "• Личные финансы\n\n"
         "Напишите *ДА* для подтверждения или любой другой текст для отмены.",
