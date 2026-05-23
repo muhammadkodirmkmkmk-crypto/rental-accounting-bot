@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import date
@@ -10,7 +11,6 @@ from handlers.start import main_menu_keyboard
 
 
 def _parse_amount(text: str) -> float:
-    """Parse amount from user input, stripping currency symbols and spaces."""
     cleaned = re.sub(r"[^\d.,]", "", text.replace(" ", ""))
     if not cleaned:
         raise ValueError(f"No numeric content in: {text!r}")
@@ -34,21 +34,8 @@ EXPENSE_CATEGORIES = [
 
 
 def _category_keyboard() -> InlineKeyboardMarkup:
-    rows = []
-    for label, val in EXPENSE_CATEGORIES:
-        rows.append([InlineKeyboardButton(label, callback_data=f"exp_cat_{val}")])
-    return InlineKeyboardMarkup(rows)
-
-
-def _objects_keyboard() -> InlineKeyboardMarkup:
-    objects = sheets.get_objects()
-    rows = []
-    for obj in objects:
-        rows.append([InlineKeyboardButton(
-            f"🏠 {obj.get('name')}",
-            callback_data=f"exp_obj_{obj.get('id')}",
-        )])
-    rows.append([InlineKeyboardButton("🏢 Общие расходы (без объекта)", callback_data="exp_obj_general")])
+    rows = [[InlineKeyboardButton(label, callback_data=f"exp_cat_{val}")]
+            for label, val in EXPENSE_CATEGORIES]
     return InlineKeyboardMarkup(rows)
 
 
@@ -59,12 +46,22 @@ async def record_expense_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.callback_query.answer()
         msg = update.callback_query.message
 
+    objects = await asyncio.to_thread(sheets.get_objects)
+    rows = []
+    for obj in objects:
+        rows.append([InlineKeyboardButton(
+            f"🏠 {obj.get('name')}",
+            callback_data=f"exp_obj_{obj.get('id')}",
+        )])
+    rows.append([InlineKeyboardButton("🏢 Общие расходы (без объекта)", callback_data="exp_obj_general")])
+    keyboard = InlineKeyboardMarkup(rows)
+
     clear_state(user_id)
     set_state(user_id, "record_expense_select_obj", {})
     await msg.reply_text(
         "🔧 *Запись расхода*\n\nВыберите объект:",
         parse_mode="Markdown",
-        reply_markup=_objects_keyboard(),
+        reply_markup=keyboard,
     )
 
 
@@ -77,7 +74,7 @@ async def expense_obj_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if obj_id == "general":
         obj_name = "Общие"
     else:
-        objects = sheets.get_objects()
+        objects = await asyncio.to_thread(sheets.get_objects)
         obj = next((o for o in objects if str(o.get("id")) == str(obj_id)), None)
         obj_name = obj.get("name", "?") if obj else "?"
 
@@ -152,7 +149,6 @@ async def expense_description_text(update: Update, context: ContextTypes.DEFAULT
 
 
 async def _save_expense(msg, user_id: int, data: dict) -> None:
-    import asyncio
     data["date"] = date.today().strftime("%d.%m.%Y")
     ok = await asyncio.to_thread(sheets.record_expense, data)
     clear_state(user_id)
