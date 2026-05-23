@@ -20,7 +20,7 @@ from telegram.ext import (
 
 import config
 from database import init_db, get_state, clear_state, set_state
-from sheets import init_sheets
+from sheets import init_sheets, clean_all_sheets
 from scheduler import start_scheduler, load_reminders_from_sheets
 
 from handlers.start import start_command, restart_command
@@ -128,6 +128,10 @@ async def post_init(application: Application) -> None:
     try:
         init_sheets()
         log.info("Google Sheets инициализирован")
+        removed = clean_all_sheets()
+        cleaned = {k: v for k, v in removed.items() if v > 0}
+        if cleaned:
+            log.info("Очистка пустых строк: %s", cleaned)
     except Exception as e:
         log.error("Ошибка инициализации Sheets: %s", e)
 
