@@ -30,31 +30,58 @@ async def _send_to_all(bot: Bot, text: str) -> None:
             logger.error("Не удалось отправить сообщение пользователю %d: %s", uid, e)
 
 
-async def check_payment_reminders(bot: Bot) -> None:
+async def check_payment_reminders(bot: Bot, days_ahead: int = 1) -> None:
+    """Send reminders for payments due in `days_ahead` days."""
     today = date.today()
-    due_tomorrow = analytics.payments_due_in_days(1)
-    for obj in due_tomorrow:
+    due = analytics.payments_due_in_days(days_ahead)
+    for obj in due:
         sym = config.CURRENCY_SYMBOL
         payment_day = int(obj.get("payment_day", 1))
-        due_date = today.replace(day=payment_day) + timedelta(days=1)
-        msg = (
-            f"⏰ *Напоминание:* Аренда за *{obj.get('name')}* "
-            f"(*{sym}{obj.get('rent_amount')}*) должна поступить завтра "
-            f"({due_date.strftime('%d.%m.%Y')}).\n"
-            f"Арендатор: {obj.get('tenant_name')} {obj.get('tenant_phone')}"
-        )
+        due_date = today.replace(day=payment_day)
+        if due_date < today:
+            # next month
+            if today.month == 12:
+                due_date = due_date.replace(year=today.year + 1, month=1)
+            else:
+                due_date = due_date.replace(month=today.month + 1)
+
+        from handlers.objects import get_current_rent
+        effective_amount = get_current_rent(obj)
+
+        if days_ahead == 3:
+            msg = (
+                f"⏰ *Через 3 дня оплата!*\n\n"
+                f"🏠 {obj.get('name')}\n"
+                f"💰 Сумма: {sym}{effective_amount}\n"
+                f"📅 Дата: {due_date.strftime('%d.%m.%Y')}\n"
+                f"👤 {obj.get('tenant_name')} {obj.get('tenant_phone')}"
+            )
+        else:
+            msg = (
+                f"⏰ *Завтра оплата!*\n\n"
+                f"🏠 {obj.get('name')}\n"
+                f"💰 Сумма: {sym}{effective_amount}\n"
+                f"📅 Дата: {due_date.strftime('%d.%m.%Y')}\n"
+                f"👤 {obj.get('tenant_name')} {obj.get('tenant_phone')}"
+            )
         await _send_to_all(bot, msg)
-    if due_tomorrow:
-        logger.info("Отправлено %d напоминаний (день до оплаты)", len(due_tomorrow))
+    if due:
+        logger.info("Отправлено %d напоминаний (%d дней до оплаты)", len(due), days_ahead)
 
 
 async def check_payment_day(bot: Bot) -> None:
     due_today = analytics.payments_due_in_days(0)
     for obj in due_today:
         obj_id = obj.get("id")
+        from handlers.objects import get_current_rent
+        effective_amount = get_current_rent(obj)
+        sym = config.CURRENCY_SYMBOL
         msg = (
-            f"💰 Сегодня день оплаты по *{obj.get('name')}*.\n"
-            f"Оплатил ли {obj.get('tenant_name')}?\n\n"
+            f"💰 *Сегодня день оплаты!*\n\n"
+            f"🏠 {obj.get('name')}\n"
+            f"💰 Сумма: {sym}{effective_amount}\n"
+            f"👤 {obj.get('tenant_name')}\n\n"
+            f"Оплачено?\n"
             f"👉 /confirm_{obj_id} — Да, оплачено\n"
             f"👉 /missed_{obj_id} — Нет, не оплачено"
         )
@@ -67,10 +94,13 @@ async def check_overdue_payments(bot: Bot) -> None:
     overdue = analytics.payments_overdue(3)
     for obj in overdue:
         sym = config.CURRENCY_SYMBOL
+        from handlers.objects import get_current_rent
+        effective_amount = get_current_rent(obj)
         msg = (
-            f"⚠️ Платёж по *{obj.get('name')}* просрочен на *3 дня*.\n"
-            f"Сумма: {sym}{obj.get('rent_amount')}\n"
-            f"Арендатор: {obj.get('tenant_name')} {obj.get('tenant_phone')}\n\n"
+            f"⚠️ *Платёж просрочен на 3 дня!*\n\n"
+            f"🏠 {obj.get('name')}\n"
+            f"💰 Сумма: {sym}{effective_amount}\n"
+            f"👤 {obj.get('tenant_name')} {obj.get('tenant_phone')}\n\n"
             "Примите меры!"
         )
         await _send_to_all(bot, msg)
@@ -80,9 +110,10 @@ async def check_lease_expirations(bot: Bot) -> None:
     expiring = analytics.leases_expiring_soon(30)
     for obj in expiring:
         msg = (
-            f"📋 Договор по *{obj.get('name')}* истекает через *{obj.get('days_left')} дн.* "
-            f"({obj.get('lease_end')}).\n"
-            f"Арендатор: {obj.get('tenant_name')}\n\n"
+            f"📋 *Договор истекает через {obj.get('days_left')} дн.*\n\n"
+            f"🏠 {obj.get('name')}\n"
+            f"📅 Дата окончания: {obj.get('lease_end')}\n"
+            f"👤 {obj.get('tenant_name')}\n\n"
             "Продлите договор или найдите нового арендатора."
         )
         await _send_to_all(bot, msg)
@@ -128,23 +159,33 @@ def start_scheduler(bot: Bot, timezone: str = "UTC") -> AsyncIOScheduler:
 
     _scheduler = AsyncIOScheduler(timezone=tz)
 
+    # 3-day reminder at 9:00
     _scheduler.add_job(
         check_payment_reminders,
         CronTrigger(hour=9, minute=0, timezone=tz),
-        args=[bot],
+        args=[bot, 3],
+        id="check_payment_reminders",
+        replace_existing=True,
+    )
+    # 1-day reminder at 10:00
+    _scheduler.add_job(
+        check_payment_reminders,
+        CronTrigger(hour=10, minute=0, timezone=tz),
+        args=[bot, 1],
         id="day_before_reminder",
         replace_existing=True,
     )
+    # On payment day at 11:00
     _scheduler.add_job(
         check_payment_day,
-        CronTrigger(hour=10, minute=0, timezone=tz),
+        CronTrigger(hour=11, minute=0, timezone=tz),
         args=[bot],
         id="payment_day_reminder",
         replace_existing=True,
     )
     _scheduler.add_job(
         check_overdue_payments,
-        CronTrigger(hour=9, minute=0, timezone=tz),
+        CronTrigger(hour=9, minute=30, timezone=tz),
         args=[bot],
         id="overdue_reminder",
         replace_existing=True,
