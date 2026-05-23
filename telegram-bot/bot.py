@@ -6,10 +6,11 @@ import asyncio
 import logging
 import logging.handlers
 import sys
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
     CallbackQueryHandler,
     TypeHandler,
@@ -337,6 +338,121 @@ async def access_guard(update: Update, context) -> bool:
     return True
 
 
+BOT_COMMANDS = [
+    BotCommand("start",        "🏠 Главное меню"),
+    BotCommand("rent",         "🏠 Аренда квартир"),
+    BotCommand("target",       "🎯 Таргет проекты"),
+    BotCommand("personal",     "💰 Личные расходы"),
+    BotCommand("add_property", "➕ Добавить объект"),
+    BotCommand("add_client",   "➕ Добавить клиента (таргет)"),
+    BotCommand("payment",      "💳 Записать оплату"),
+    BotCommand("expense",      "📉 Записать расход"),
+    BotCommand("report",       "📊 Отчёт за месяц"),
+    BotCommand("report_year",  "📈 Отчёт за год"),
+    BotCommand("objects",      "🏘️ Мои объекты"),
+    BotCommand("clients",      "👥 Мои клиенты"),
+    BotCommand("reminders",    "🔔 Настроить напоминания"),
+    BotCommand("delete",       "🗑️ Сбросить все данные"),
+    BotCommand("help",         "❓ Помощь"),
+]
+
+HELP_TEXT = (
+    "Амирхон ака, вот список команд 📋\n\n"
+    "🏠 *Аренда квартир*\n"
+    "/rent — открыть меню аренды\n"
+    "/add\\_property — добавить новый объект\n"
+    "/objects — список всех объектов\n"
+    "/payment — записать платёж\n"
+    "/expense — записать расход\n"
+    "/report — отчёт за текущий месяц\n"
+    "/report\\_year — отчёт за текущий год\n\n"
+    "🎯 *Таргет проекты*\n"
+    "/target — открыть меню таргета\n"
+    "/add\\_client — добавить клиента\n"
+    "/clients — список клиентов\n\n"
+    "💰 *Личные финансы*\n"
+    "/personal — открыть меню личных расходов\n\n"
+    "⚙️ *Управление*\n"
+    "/reminders — настроить напоминания\n"
+    "/delete — сбросить все данные\n"
+    "/restart — перезапустить настройку\n"
+    "/help — показать эту справку\n\n"
+    "💡 Также можно писать голосом или текстом:\n"
+    "«Квартира 1 заплатила 500» или «Расход ремонт 150$»"
+)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        HELP_TEXT,
+        parse_mode="Markdown",
+        reply_markup=MODULE_MENU_KEYBOARD,
+    )
+
+
+async def rent_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🏠 *Аренда квартир*\n\nЧто хотите сделать?",
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+async def target_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🎯 *Таргет проекты*\n\nВыберите действие:",
+        parse_mode="Markdown",
+        reply_markup=targeting_menu_keyboard(),
+    )
+
+
+async def personal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "💰 *Личные расходы*\n\nВыберите действие:",
+        parse_mode="Markdown",
+        reply_markup=personal_menu_keyboard(),
+    )
+
+
+async def report_year_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    import pytz
+    from datetime import datetime
+    import sheets as _sheets
+    import analytics
+    from database import get_user_settings as _gus
+
+    tz = pytz.timezone(config.DEFAULT_TIMEZONE)
+    now = datetime.now(tz)
+    settings = _gus(update.effective_user.id)
+    sym = settings.get("symbol", "$")
+
+    month_names = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн",
+                   "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
+
+    lines = [f"Амирхон ака, отчёт за {now.year} 📈\n"]
+    total_income = 0.0
+    total_expense = 0.0
+
+    for month in range(1, now.month + 1):
+        payments = await asyncio.to_thread(_sheets.get_payments_for_month, now.year, month)
+        expenses = await asyncio.to_thread(_sheets.get_expenses_for_month, now.year, month)
+        inc = sum(float(p.get("received_amount", 0)) for p in payments)
+        exp = sum(float(e.get("amount", 0)) for e in expenses)
+        total_income += inc
+        total_expense += exp
+        lines.append(f"  {month_names[month-1]}: доход {sym}{inc:.0f} / расход {sym}{exp:.0f}")
+
+    lines.append(f"\n💰 Итого доход: *{sym}{total_income:.2f}*")
+    lines.append(f"🔧 Итого расходы: *{sym}{total_expense:.2f}*")
+    lines.append(f"📈 Чистая прибыль: *{sym}{total_income - total_expense:.2f}*")
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
 async def post_init(application: Application) -> None:
     bot = application.bot
     try:
@@ -346,6 +462,13 @@ async def post_init(application: Application) -> None:
         logging.getLogger(__name__).error("Ошибка инициализации Sheets: %s", e)
 
     start_scheduler(bot, timezone=config.DEFAULT_TIMEZONE)
+
+    # Register bot command menu (shows in Telegram "/" menu)
+    try:
+        await bot.set_my_commands(BOT_COMMANDS)
+        logging.getLogger(__name__).info("Команды бота зарегистрированы")
+    except Exception as e:
+        logging.getLogger(__name__).warning("Не удалось зарегистрировать команды: %s", e)
 
 
 def build_application() -> Application:
@@ -358,17 +481,33 @@ def build_application() -> Application:
 
     app.add_handler(TypeHandler(Update, access_guard), group=-1)
 
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("restart", restart_command))
-    app.add_handler(CommandHandler("delete", delete_command))
-    app.add_handler(CommandHandler("add_object", add_object_command))
-    app.add_handler(CommandHandler("objects", objects_command))
+    app.add_handler(CommandHandler("start",         start_command))
+    app.add_handler(CommandHandler("restart",       restart_command))
+    app.add_handler(CommandHandler("delete",        delete_command))
+    app.add_handler(CommandHandler("help",          help_command))
+    # Module shortcuts
+    app.add_handler(CommandHandler("rent",          rent_command))
+    app.add_handler(CommandHandler("target",        target_command))
+    app.add_handler(CommandHandler("personal",      personal_command))
+    # Objects / clients
+    app.add_handler(CommandHandler("add_object",    add_object_command))
+    app.add_handler(CommandHandler("add_property",  add_object_command))
+    app.add_handler(CommandHandler("objects",       objects_command))
+    app.add_handler(CommandHandler("add_client",    add_client_command))
+    app.add_handler(CommandHandler("clients",       clients_command))
+    # Payments / expenses
     app.add_handler(CommandHandler("record_payment", record_payment_command))
+    app.add_handler(CommandHandler("payment",       record_payment_command))
     app.add_handler(CommandHandler("record_expense", record_expense_command))
-    app.add_handler(CommandHandler("report", report_command))
-    app.add_handler(CommandHandler("summary", summary_command))
-    app.add_handler(CommandHandler("set_reminder", set_reminder_command))
-    app.add_handler(CommandHandler("tenants", tenants_command))
+    app.add_handler(CommandHandler("expense",       record_expense_command))
+    # Reports
+    app.add_handler(CommandHandler("report",        report_command))
+    app.add_handler(CommandHandler("report_year",   report_year_command))
+    app.add_handler(CommandHandler("summary",       summary_command))
+    # Reminders / tenants
+    app.add_handler(CommandHandler("set_reminder",  set_reminder_command))
+    app.add_handler(CommandHandler("reminders",     set_reminder_command))
+    app.add_handler(CommandHandler("tenants",       tenants_command))
 
     app.add_handler(MessageHandler(
         filters.Regex(r"^/confirm_\d+"),
