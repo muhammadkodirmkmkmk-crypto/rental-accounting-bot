@@ -196,8 +196,9 @@ def add_object(data: dict) -> bool:
 # ── Payments ──────────────────────────────────────────────────
 
 def record_payment(data: dict) -> bool:
-    expected = float(data.get("expected_amount", 0))
-    received = float(data.get("received_amount", 0))
+    from utils import safe_float
+    expected = safe_float(data.get("expected_amount"))
+    received = safe_float(data.get("received_amount"))
     diff = received - expected
     status = "paid" if diff >= 0 else ("partial" if received > 0 else "missed")
     row = [
