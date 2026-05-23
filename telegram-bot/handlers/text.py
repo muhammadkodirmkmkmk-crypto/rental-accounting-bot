@@ -424,6 +424,15 @@ async def free_text_handler(
         update.message.text.strip() if update.message and update.message.text else ""
     )
 
+    if not msg_text:
+        logger.warning("free_text_handler: empty msg_text, skipping")
+        return
+
+    logger.info(
+        "free_text_handler: user=%d state=%r source=%s msg=%r",
+        user_id, state, "voice" if text else "text", msg_text[:80],
+    )
+
     # ── /delete confirmation ──────────────────────────────────
     if state == "confirm_delete":
         if msg_text.upper() in ("ДА", "DA", "YES"):
@@ -443,10 +452,6 @@ async def free_text_handler(
                 "Амирхон ака, удаление отменено ❌",
                 reply_markup=module_menu_keyboard(),
             )
-        return
-
-    # ── Skip AI if inside a wizard step ─────────────────────
-    if state and text is None:
         return
 
     # ── Greetings ─────────────────────────────────────────────
@@ -469,12 +474,30 @@ async def free_text_handler(
 
     objects, clients, payments = await _get_context()
 
-    result = await asyncio.to_thread(
-        claude_ai.process_message,
-        msg_text,
-        objects,
-        clients,
-        payments,
+    logger.info(
+        "Calling Claude for user=%d msg=%r (objects=%d clients=%d payments=%d)",
+        user_id, msg_text[:80], len(objects), len(clients), len(payments),
+    )
+
+    try:
+        result = await asyncio.to_thread(
+            claude_ai.process_message,
+            msg_text,
+            objects,
+            clients,
+            payments,
+        )
+    except Exception as e:
+        logger.error("claude_ai.process_message exception: %s", e, exc_info=True)
+        await update.message.reply_text(
+            "Амирхон ака, временная ошибка AI. Попробуйте ещё раз.",
+            reply_markup=module_menu_keyboard(),
+        )
+        return
+
+    logger.info(
+        "Claude result for user=%d: action=%r full=%r",
+        user_id, result.get("action"), str(result)[:200],
     )
 
     await _dispatch_action(
