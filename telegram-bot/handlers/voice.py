@@ -20,17 +20,17 @@ _whisper_model = None
 def _get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
-        import whisper
-        logger.info("Loading Whisper model '%s'...", config.WHISPER_MODEL)
-        _whisper_model = whisper.load_model(config.WHISPER_MODEL)
+        from faster_whisper import WhisperModel
+        logger.info("Loading faster-whisper model '%s'...", config.WHISPER_MODEL)
+        _whisper_model = WhisperModel(config.WHISPER_MODEL, device="cpu", compute_type="int8")
         logger.info("Whisper model loaded.")
     return _whisper_model
 
 
 def _transcribe_audio(ogg_path: str) -> str:
     model = _get_whisper_model()
-    result = model.transcribe(ogg_path, language=None, task="transcribe")
-    text = result.get("text", "").strip()
+    segments, _ = model.transcribe(ogg_path, beam_size=5)
+    text = " ".join(s.text for s in segments).strip()
     logger.info("Whisper transcription: %r", text)
     return text
 
