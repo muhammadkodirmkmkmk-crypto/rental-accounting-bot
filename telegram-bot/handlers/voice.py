@@ -78,7 +78,15 @@ def _claude_parse(transcription: str, known_objects: list[str]) -> dict | None:
             messages=[{"role": "user", "content": prompt}],
         )
         raw = message.content[0].text.strip()
-        parsed = json.loads(raw)
+        if not raw:
+            logger.warning("Claude returned empty response")
+            return None
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start == -1 or end == 0:
+            logger.warning("No JSON object found in Claude response: %r", raw)
+            return None
+        parsed = json.loads(raw[start:end])
         logger.info("Claude NLP result: %s", parsed)
         return parsed
     except Exception as e:
