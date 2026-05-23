@@ -17,6 +17,7 @@ import analytics
 import claude_ai
 import scheduler as sched
 from database import get_state, get_user_settings, clear_state, save_user_settings
+from utils import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -151,12 +152,12 @@ async def _dispatch_action(
             "date": today_str,
         }
         ok = await asyncio.to_thread(sheets.record_payment, data)
-        diff = float(amount) - float(obj.get("rent_amount", 0))
+        diff = safe_float(amount) - safe_float(obj.get("rent_amount"))
         diff_text = (f"\n⚠️ Недоплата: {sym}{abs(diff):.0f}" if diff < 0 else
                      f"\n➕ Переплата: {sym}{diff:.0f}" if diff > 0 else "")
         msg = (
             f"✅ Амирхон ака, платёж записан!\n\n"
-            f"🏠 {obj.get('name')}: {sym}{float(amount):.0f}{diff_text}\n"
+            f"🏠 {obj.get('name')}: {sym}{safe_float(amount):.0f}{diff_text}\n"
             f"📅 {today_str}"
         )
         if not ok:
@@ -188,7 +189,7 @@ async def _dispatch_action(
         msg = (
             f"✅ Амирхон ака, расход записан!\n\n"
             f"🏠 {data['object_name']}\n"
-            f"📂 {category}: {sym}{float(amount):.0f}\n"
+            f"📂 {category}: {sym}{safe_float(amount):.0f}\n"
             f"📅 {today_str}"
         )
         if not ok:
@@ -270,8 +271,8 @@ async def _dispatch_action(
             return msg
 
         client = _find_client(clients, client_name)
-        expected = float(client.get("monthly_fee", 0)) if client else float(amount)
-        received = float(amount)
+        expected = safe_float(client.get("monthly_fee")) if client else safe_float(amount)
+        received = safe_float(amount)
         diff = received - expected
 
         row_data = {
