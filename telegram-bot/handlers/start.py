@@ -112,7 +112,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if not settings.get("setup_done"):
         await update.message.reply_text(
-            "👋 Добро пожаловать!\n\n"
+            "Амирхон ака, добро пожаловать! 👋\n\n"
             "Я помогу вам управлять арендой, таргет-проектами и личными финансами.\n\n"
             "Давайте выполним быструю настройку.\n\n"
             "💱 *Шаг 1/2:* Выберите валюту по умолчанию:",
@@ -122,7 +122,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         set_state(user_id, "setup_currency", {"timezone": "Asia/Tashkent"})
     else:
         await update.message.reply_text(
-            "👋 Привет! Выберите раздел:",
+            "Амирхон ака, выберите раздел 👇",
             reply_markup=MODULE_MENU_KEYBOARD,
         )
 
@@ -130,7 +130,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def show_module_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     msg = update.message or (update.callback_query.message if update.callback_query else None)
     if msg:
-        await msg.reply_text("Выберите раздел:", reply_markup=MODULE_MENU_KEYBOARD)
+        await msg.reply_text("Амирхон ака, выберите раздел 👇", reply_markup=MODULE_MENU_KEYBOARD)
 
 
 async def setup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -177,7 +177,7 @@ async def setup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             clear_state(user_id)
             await query.edit_message_text(
-                "✅ Настройка завершена!\n\nВыберите раздел:",
+                "Амирхон ака, настройка завершена! ✅\n\nВыберите раздел:",
                 reply_markup=MODULE_MENU_KEYBOARD,
             )
 
