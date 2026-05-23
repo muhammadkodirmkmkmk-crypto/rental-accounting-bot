@@ -7,7 +7,13 @@ import config
 
 logger = logging.getLogger(__name__)
 
-MAIN_MENU_KEYBOARD = InlineKeyboardMarkup([
+MODULE_MENU_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🏠 Аренда квартир", callback_data="module_rental")],
+    [InlineKeyboardButton("🎯 Таргет проекты", callback_data="module_targeting")],
+    [InlineKeyboardButton("💰 Личные расходы", callback_data="module_personal")],
+])
+
+RENTAL_MENU_KEYBOARD = InlineKeyboardMarkup([
     [
         InlineKeyboardButton("🏠 Мои объекты", callback_data="menu_objects"),
         InlineKeyboardButton("➕ Добавить объект", callback_data="menu_add_object"),
@@ -24,6 +30,31 @@ MAIN_MENU_KEYBOARD = InlineKeyboardMarkup([
         InlineKeyboardButton("👥 Арендаторы", callback_data="menu_tenants"),
         InlineKeyboardButton("⏰ Напоминания", callback_data="menu_set_reminder"),
     ],
+    [InlineKeyboardButton("◀ Главное меню", callback_data="module_main")],
+])
+
+TARGETING_MENU_KEYBOARD = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("👥 Мои клиенты", callback_data="tgt_clients"),
+        InlineKeyboardButton("➕ Добавить клиента", callback_data="tgt_add_client"),
+    ],
+    [
+        InlineKeyboardButton("💰 Записать платёж", callback_data="tgt_record_payment"),
+        InlineKeyboardButton("🔧 Записать расход", callback_data="tgt_record_expense"),
+    ],
+    [
+        InlineKeyboardButton("📊 Отчёт", callback_data="tgt_report"),
+    ],
+    [InlineKeyboardButton("◀ Главное меню", callback_data="module_main")],
+])
+
+PERSONAL_MENU_KEYBOARD = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("📥 Записать доход", callback_data="prs_add_income"),
+        InlineKeyboardButton("📤 Записать расход", callback_data="prs_add_expense"),
+    ],
+    [InlineKeyboardButton("📊 Отчёт за месяц", callback_data="prs_report")],
+    [InlineKeyboardButton("◀ Главное меню", callback_data="module_main")],
 ])
 
 TIMEZONE_KEYBOARD = InlineKeyboardMarkup([
@@ -58,6 +89,22 @@ CURRENCY_KEYBOARD = InlineKeyboardMarkup([
 ])
 
 
+def module_menu_keyboard() -> InlineKeyboardMarkup:
+    return MODULE_MENU_KEYBOARD
+
+
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    return RENTAL_MENU_KEYBOARD
+
+
+def targeting_menu_keyboard() -> InlineKeyboardMarkup:
+    return TARGETING_MENU_KEYBOARD
+
+
+def personal_menu_keyboard() -> InlineKeyboardMarkup:
+    return PERSONAL_MENU_KEYBOARD
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     settings = get_user_settings(user_id)
@@ -65,8 +112,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if not settings.get("setup_done"):
         await update.message.reply_text(
-            "👋 Добро пожаловать в *бот учёта аренды недвижимости*!\n\n"
-            "Я помогу вам управлять платежами, расходами и отчётами по вашим объектам.\n\n"
+            "👋 Добро пожаловать!\n\n"
+            "Я помогу вам управлять арендой, таргет-проектами и личными финансами.\n\n"
             "Давайте выполним быструю настройку.\n\n"
             "💱 *Шаг 1/2:* Выберите валюту по умолчанию:",
             parse_mode="Markdown",
@@ -74,15 +121,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         set_state(user_id, "setup_currency", {"timezone": "Asia/Tashkent"})
     else:
-        sym = settings.get("symbol", "$")
-        tz = settings.get("timezone", "UTC")
         await update.message.reply_text(
-            f"👋 С возвращением!\n\n"
-            f"🌍 Часовой пояс: *{tz}* | 💱 Валюта: *{sym}*\n\n"
-            "Что хотите сделать?",
-            parse_mode="Markdown",
-            reply_markup=MAIN_MENU_KEYBOARD,
+            "👋 Привет! Выберите раздел:",
+            reply_markup=MODULE_MENU_KEYBOARD,
         )
+
+
+async def show_module_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = update.message or (update.callback_query.message if update.callback_query else None)
+    if msg:
+        await msg.reply_text("Выберите раздел:", reply_markup=MODULE_MENU_KEYBOARD)
 
 
 async def setup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -98,7 +146,7 @@ async def setup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         data["symbol"] = symbol
         await query.edit_message_text(
             f"✅ Валюта установлена: *{symbol} {currency}*\n\n"
-            "🏠 *Шаг 2/2:* Хотите добавить первый объект сейчас?",
+            "🏠 *Шаг 2/2:* Хотите добавить первый объект аренды сейчас?",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [
@@ -129,9 +177,8 @@ async def setup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             clear_state(user_id)
             await query.edit_message_text(
-                "✅ Настройка завершена! Можно начинать работу.\n\n"
-                "Что хотите сделать?",
-                reply_markup=MAIN_MENU_KEYBOARD,
+                "✅ Настройка завершена!\n\nВыберите раздел:",
+                reply_markup=MODULE_MENU_KEYBOARD,
             )
 
 
@@ -157,11 +204,7 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     save_user_settings(user_id, setup_done=0)
     await update.message.reply_text(
         "🔄 *Сброс настроек выполнен.*\n\n"
-        "Все настройки аккаунта сброшены. Запускаю мастер настройки заново...",
+        "Все настройки сброшены. Запускаю мастер настройки заново...",
         parse_mode="Markdown",
     )
     await start_command(update, context)
-
-
-def main_menu_keyboard() -> InlineKeyboardMarkup:
-    return MAIN_MENU_KEYBOARD
