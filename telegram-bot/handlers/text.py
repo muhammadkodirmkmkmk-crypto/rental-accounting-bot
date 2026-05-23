@@ -32,21 +32,21 @@ async def free_text_handler(
     # ── /delete confirmation ──────────────────────────────────
     if state == "confirm_delete":
         if msg_text.upper() in ("ДА", "DA", "YES"):
-            await update.message.reply_text("🗑 Удаляю все данные...")
+            await update.message.reply_text("Амирхон ака, удаляю все данные... 🗑")
             import asyncio
             ok = await asyncio.to_thread(sheets.clear_all_data)
             clear_state(user_id)
             save_user_settings(user_id, setup_done=0)
             from handlers.start import start_command
             await update.message.reply_text(
-                f"{'✅ Все данные удалены.' if ok else '⚠️ Частично удалено (ошибка Sheets).'}\n\n"
+                f"{'Амирхон ака, все данные удалены ✅' if ok else 'Амирхон ака, частично удалено ⚠️ (ошибка Sheets).'}\n\n"
                 "Запускаю мастер настройки заново..."
             )
             await start_command(update, context)
         else:
             clear_state(user_id)
             await update.message.reply_text(
-                "❌ Удаление отменено.",
+                "Амирхон ака, удаление отменено ❌",
                 reply_markup=module_menu_keyboard(),
             )
         return
@@ -58,7 +58,7 @@ async def free_text_handler(
             from handlers.start import start_command
             await start_command(update, context)
         else:
-            await update.message.reply_text("👋 Привет! Выберите раздел:",
+            await update.message.reply_text("Амирхон ака, выберите раздел 👇",
                                             reply_markup=module_menu_keyboard())
         return
 
@@ -68,7 +68,7 @@ async def free_text_handler(
 
     if not parsed:
         await update.message.reply_text(
-            "Не понял команду. Используйте меню или голосовое сообщение.\n\n"
+            "Амирхон ака, не понял команду. Используйте меню или голосовое сообщение.\n\n"
             "Примеры:\n"
             "• «Квартира 1 заплатила 500»\n"
             "• «Расход ремонт 150$»\n"
@@ -118,7 +118,7 @@ async def free_text_handler(
         diff = amount - float(obj.get("rent_amount", 0))
         diff_text = f"\n⚠️ Недоплата: {sym}{abs(diff):.2f}" if diff < 0 else ""
         await reply_msg.reply_text(
-            f"{'✅ Платёж записан!' if ok else '⚠️ Сохранено локально.'}\n\n"
+            f"{'Амирхон ака, платёж записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
             f"🏠 {obj.get('name')}: {sym}{amount:.2f}{diff_text}\n"
             f"📅 {data['date']}",
             reply_markup=main_menu_keyboard(),
@@ -154,7 +154,7 @@ async def free_text_handler(
         }
         ok = sheets.record_expense(data)
         await reply_msg.reply_text(
-            f"{'✅ Расход записан!' if ok else '⚠️ Сохранено локально.'}\n\n"
+            f"{'Амирхон ака, расход записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
             f"📂 {category}: {sym}{amount:.2f}\n"
             f"🏠 {data['object_name']}\n"
             f"📅 {data['date']}",
