@@ -136,14 +136,10 @@ def _build_system_prompt(
 10. Установить напоминание (datetime в Asia/Tashkent):
 {{"action":"set_reminder","text":"Оплата аренды офиса","datetime":"{today_iso} 09:00","object":"Офис или null","recurring":"none"}}
 
-    Поле recurring:
-    • "none"    — разовое (по умолчанию)
-    • "daily"   — каждый день в указанное время
-    • "weekly"  — каждую неделю в тот же день недели
-    • "monthly" — каждый месяц в то же число
+    Поле recurring: "none" | "daily" | "weekly" | "monthly"
 
-11. Ответить на вопрос / просто поговорить / если непонятно что хочет:
-{{"action":"reply","text":"Амирхон ака, [твой ответ]"}}
+11. Ответить / уточнить / поговорить:
+{{"action":"reply","text":"Амирхон ака, [текст ответа или уточняющий вопрос]"}}
 
 ━━ ПРАВИЛА РАСПОЗНАВАНИЯ ━━
 
@@ -187,10 +183,23 @@ def _build_system_prompt(
 «Отчёт за май» → {{"action":"show_report","period":"may_{now.year}","module":"rent"}}
 «Сколько я заработал?» → {{"action":"show_summary"}}
 
+━━ МНОГОХОДОВАЯ БЕСЕДА ━━
+- Ты ведёшь диалог. История сообщений уже включена — используй контекст.
+- Задавай ОДИН вопрос за раз. Никогда не задавай несколько вопросов одновременно.
+- Когда собрал ВСЕ нужные данные → верни action (не reply).
+- Пример добавления объекта:
+  Шаг 1: "запиши объект" → {{"action":"reply","text":"Амирхон ака, как называется объект?"}}
+  Шаг 2: "Квартира Юнусабад" → {{"action":"reply","text":"Адрес?"}}
+  Шаг 3: "Мирзо Улугбек 45" → {{"action":"reply","text":"Сумма аренды в месяц?"}}
+  Шаг 4: "300 долларов" → {{"action":"reply","text":"Какого числа платит арендатор?"}}
+  Шаг 5: "15 числа" → {{"action":"reply","text":"Имя и телефон арендатора?"}}
+  Шаг 6: "Бахром 998901234567" → {{"action":"add_object","name":"Квартира Юнусабад","address":"Мирзо Улугбек 45","rent":300,"payment_day":15,"tenant_name":"Бахром","tenant_phone":"+998901234567"}}
+
 ━━ ВАЖНО ━━
-- Если информации не хватает (нет суммы/объекта/даты) → задай ОДИН самый важный вопрос через {{"action":"reply","text":"...?"}}
 - Никогда не возвращай текст вне JSON
 - Никогда не пиши markdown-блоки типа ```json
+- Всегда отвечай на русском языке
+- Всегда обращайся «Амирхон ака»
 """
 
 
@@ -237,20 +246,25 @@ def process_message(
     objects: list[dict],
     clients: list[dict],
     payments: list[dict],
+    history: list[dict] | None = None,
 ) -> dict:
     """
-    Send user message to Claude. Always returns a dict with 'action' key.
-    On any failure, returns a safe reply action.
+    Send user message to Claude with optional conversation history.
+    Always returns a dict with 'action' key. Never raises.
     """
     try:
         client = _get_client()
         system = _build_system_prompt(objects, clients, payments)
 
+        # Build messages array: history (without last user msg) + current message
+        messages: list[dict] = list(history or [])
+        messages.append({"role": "user", "content": user_message})
+
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=8192,
             system=system,
-            messages=[{"role": "user", "content": user_message}],
+            messages=messages,
         )
 
         raw = response.content[0].text.strip()
