@@ -1,3 +1,6 @@
+[phases.setup]
+aptPkgs = ["ffmpeg"]
+
 [phases.install]
 cmds = ["pip3 install -r telegram-bot/requirements.txt"]
 
