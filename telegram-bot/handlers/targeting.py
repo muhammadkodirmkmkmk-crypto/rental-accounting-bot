@@ -232,8 +232,9 @@ async def tgt_pay_amount_text(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def _save_tpayment(msg, user_id: int, data: dict) -> None:
-    expected = float(data.get("expected", 0))
-    received = float(data.get("received", 0))
+    from utils import safe_float
+    expected = safe_float(data.get("expected"))
+    received = safe_float(data.get("received"))
     diff = received - expected
     status = "paid" if diff >= 0 else ("partial" if received > 0 else "missed")
     row_data = {
