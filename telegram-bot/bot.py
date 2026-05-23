@@ -20,7 +20,7 @@ from telegram.ext import (
 import config
 from database import init_db, get_state, clear_state, set_state
 from sheets import init_sheets
-from scheduler import start_scheduler
+from scheduler import start_scheduler, load_reminders_from_sheets
 
 from handlers.start import (
     start_command,
@@ -74,6 +74,11 @@ from handlers.reminders import (
     set_reminder_hour_callback,
     set_day_before_hour_callback,
     reminder_noop_callback,
+)
+from handlers.personal_reminders import (
+    my_reminders_command,
+    delete_reminder_callback,
+    close_reminders_callback,
 )
 from handlers.text import free_text_handler
 from handlers.voice import voice_message_handler
@@ -299,6 +304,10 @@ async def main_callback_dispatcher(update: Update, context) -> None:
         await reminder_noop_callback(update, context)
     elif data == "rem_set_daybefore":
         await set_reminder_command(update, context)
+    elif data.startswith("rem_del_"):
+        await delete_reminder_callback(update, context)
+    elif data == "rem_close":
+        await close_reminders_callback(update, context)
 
     # ── Targeting callbacks ───────────────────────────────────
     elif data == "tgt_clients":
@@ -362,7 +371,8 @@ BOT_COMMANDS = [
     BotCommand("report_year",  "📈 Отчёт за год"),
     BotCommand("objects",      "🏘️ Мои объекты"),
     BotCommand("clients",      "👥 Мои клиенты"),
-    BotCommand("reminders",    "🔔 Настроить напоминания"),
+    BotCommand("reminders",    "🔔 Настроить напоминания об оплате"),
+    BotCommand("my_reminders", "📋 Мои личные напоминания"),
     BotCommand("delete",       "🗑️ Сбросить все данные"),
     BotCommand("help",         "❓ Помощь"),
 ]
@@ -507,6 +517,10 @@ async def post_init(application: Application) -> None:
         logging.getLogger(__name__).error("Ошибка инициализации Sheets: %s", e)
 
     start_scheduler(bot, timezone=config.DEFAULT_TIMEZONE)
+    try:
+        load_reminders_from_sheets(bot)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Could not restore reminders: %s", e)
 
     # Register bot command menu (shows in Telegram "/" menu)
     try:
@@ -552,6 +566,7 @@ def build_application() -> Application:
     # Reminders / tenants
     app.add_handler(CommandHandler("set_reminder",  set_reminder_command))
     app.add_handler(CommandHandler("reminders",     set_reminder_command))
+    app.add_handler(CommandHandler("my_reminders",  my_reminders_command))
     app.add_handler(CommandHandler("tenants",       tenants_command))
     app.add_handler(CommandHandler("debug_sheets",  debug_sheets_command))
 
