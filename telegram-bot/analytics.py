@@ -1,10 +1,18 @@
 from datetime import datetime, date, timedelta
 from collections import defaultdict
 import logging
+import pytz
 
 import sheets
 
 logger = logging.getLogger(__name__)
+
+_TZ = pytz.timezone("Asia/Tashkent")
+
+
+def _today() -> date:
+    """Return today's date in Asia/Tashkent, not server UTC."""
+    return datetime.now(_TZ).date()
 
 
 def payment_reliability(object_id: str) -> dict:
@@ -91,7 +99,7 @@ def occupancy_rate() -> dict:
 
 
 def leases_expiring_soon(days: int = 30) -> list[dict]:
-    today = date.today()
+    today = _today()
     threshold = today + timedelta(days=days)
     objects = sheets.get_objects()
     expiring = []
@@ -114,7 +122,7 @@ def leases_expiring_soon(days: int = 30) -> list[dict]:
 
 
 def payments_due_in_days(days_ahead: int) -> list[dict]:
-    today = date.today()
+    today = _today()
     target = today + timedelta(days=days_ahead)
     objects = sheets.get_active_objects()
     due = []
@@ -129,7 +137,7 @@ def payments_due_in_days(days_ahead: int) -> list[dict]:
 
 
 def payments_overdue(days_overdue: int) -> list[dict]:
-    today = date.today()
+    today = _today()
     objects = sheets.get_active_objects()
     overdue = []
     for obj in objects:
