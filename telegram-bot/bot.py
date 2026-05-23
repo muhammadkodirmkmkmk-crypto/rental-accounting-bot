@@ -185,7 +185,10 @@ async def main_callback_dispatcher(update: Update, context) -> None:
     # ── Module routing ────────────────────────────────────────
     if data == "module_main":
         await query.answer()
-        await query.edit_message_text("Выберите раздел:", reply_markup=MODULE_MENU_KEYBOARD)
+        await query.edit_message_text(
+            "Амирхон ака, ассалому алайкум! 👋\n\nЧем могу помочь?",
+            reply_markup=MODULE_MENU_KEYBOARD,
+        )
         return
 
     if data == "module_rental":
