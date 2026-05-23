@@ -152,8 +152,9 @@ async def expense_description_text(update: Update, context: ContextTypes.DEFAULT
 
 
 async def _save_expense(msg, user_id: int, data: dict) -> None:
+    import asyncio
     data["date"] = date.today().strftime("%d.%m.%Y")
-    ok = sheets.record_expense(data)
+    ok = await asyncio.to_thread(sheets.record_expense, data)
     clear_state(user_id)
     sym = data.get("symbol", "$")
     status_text = "✅ Расход записан!" if ok else "⚠️ Сохранено локально (синхронизируется)."
