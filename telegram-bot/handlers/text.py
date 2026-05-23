@@ -13,7 +13,7 @@ from handlers.start import main_menu_keyboard, module_menu_keyboard
 logger = logging.getLogger(__name__)
 
 GREETING_PATTERN = re.compile(
-    r"^(привет|hello|hi|хай|меню|menu|старт|start|добрый день|добрый вечер|добрый утро|доброе утро)\.?!?$",
+    r"^(привет|прив|салом|hello|hi|hey|хай|здравствуй|добрый день|добрый вечер|доброе утро|меню|menu|старт|start)[\s,!.]*$",
     re.IGNORECASE,
 )
 
@@ -59,8 +59,10 @@ async def free_text_handler(
             from handlers.start import start_command
             await start_command(update, context)
         else:
-            await update.message.reply_text("Амирхон ака, выберите раздел 👇",
-                                            reply_markup=module_menu_keyboard())
+            await update.message.reply_text(
+                "Амирхон ака, ассалому алайкум! 👋\n\nЧем могу помочь?",
+                reply_markup=module_menu_keyboard(),
+            )
         return
 
     # ── NLP free text ─────────────────────────────────────────
