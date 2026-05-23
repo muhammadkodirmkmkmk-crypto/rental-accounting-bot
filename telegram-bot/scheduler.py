@@ -14,6 +14,12 @@ import config
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
+_tz: pytz.BaseTzInfo = pytz.timezone("Asia/Tashkent")  # updated by start_scheduler
+
+
+def _today() -> date:
+    """Return today's date in the bot's configured timezone (not server UTC)."""
+    return datetime.now(_tz).date()
 
 
 def _get_all_user_ids() -> list[int]:
@@ -32,14 +38,13 @@ async def _send_to_all(bot: Bot, text: str) -> None:
 
 async def check_payment_reminders(bot: Bot, days_ahead: int = 1) -> None:
     """Send reminders for payments due in `days_ahead` days."""
-    today = date.today()
+    today = _today()
     due = analytics.payments_due_in_days(days_ahead)
     for obj in due:
         sym = config.CURRENCY_SYMBOL
         payment_day = int(obj.get("payment_day", 1))
         due_date = today.replace(day=payment_day)
         if due_date < today:
-            # next month
             if today.month == 12:
                 due_date = due_date.replace(year=today.year + 1, month=1)
             else:
@@ -50,16 +55,16 @@ async def check_payment_reminders(bot: Bot, days_ahead: int = 1) -> None:
 
         if days_ahead == 3:
             msg = (
-                f"⏰ *Через 3 дня оплата!*\n\n"
-                f"🏠 {obj.get('name')}\n"
+                f"Амирхон ака, напоминаю: через 3 дня оплата ⏰\n\n"
+                f"🏠 *{obj.get('name')}*\n"
                 f"💰 Сумма: {sym}{effective_amount}\n"
                 f"📅 Дата: {due_date.strftime('%d.%m.%Y')}\n"
                 f"👤 {obj.get('tenant_name')} {obj.get('tenant_phone')}"
             )
         else:
             msg = (
-                f"⏰ *Завтра оплата!*\n\n"
-                f"🏠 {obj.get('name')}\n"
+                f"Амирхон ака, завтра оплата ⏰\n\n"
+                f"🏠 *{obj.get('name')}*\n"
                 f"💰 Сумма: {sym}{effective_amount}\n"
                 f"📅 Дата: {due_date.strftime('%d.%m.%Y')}\n"
                 f"👤 {obj.get('tenant_name')} {obj.get('tenant_phone')}"
@@ -77,8 +82,8 @@ async def check_payment_day(bot: Bot) -> None:
         effective_amount = get_current_rent(obj)
         sym = config.CURRENCY_SYMBOL
         msg = (
-            f"💰 *Сегодня день оплаты!*\n\n"
-            f"🏠 {obj.get('name')}\n"
+            f"Амирхон ака, сегодня день оплаты 💰\n\n"
+            f"🏠 *{obj.get('name')}*\n"
             f"💰 Сумма: {sym}{effective_amount}\n"
             f"👤 {obj.get('tenant_name')}\n\n"
             f"Оплачено?\n"
@@ -97,8 +102,8 @@ async def check_overdue_payments(bot: Bot) -> None:
         from handlers.objects import get_current_rent
         effective_amount = get_current_rent(obj)
         msg = (
-            f"⚠️ *Платёж просрочен на 3 дня!*\n\n"
-            f"🏠 {obj.get('name')}\n"
+            f"Амирхон ака, платёж просрочен на 3 дня ⚠️\n\n"
+            f"🏠 *{obj.get('name')}*\n"
             f"💰 Сумма: {sym}{effective_amount}\n"
             f"👤 {obj.get('tenant_name')} {obj.get('tenant_phone')}\n\n"
             "Примите меры!"
@@ -110,9 +115,9 @@ async def check_lease_expirations(bot: Bot) -> None:
     expiring = analytics.leases_expiring_soon(30)
     for obj in expiring:
         msg = (
-            f"📋 *Договор истекает через {obj.get('days_left')} дн.*\n\n"
-            f"🏠 {obj.get('name')}\n"
-            f"📅 Дата окончания: {obj.get('lease_end')}\n"
+            f"Амирхон ака, договор скоро истекает 📋\n\n"
+            f"🏠 *{obj.get('name')}*\n"
+            f"📅 Дата окончания: {obj.get('lease_end')} (через {obj.get('days_left')} дн.)\n"
             f"👤 {obj.get('tenant_name')}\n\n"
             "Продлите договор или найдите нового арендатора."
         )
@@ -120,10 +125,13 @@ async def check_lease_expirations(bot: Bot) -> None:
 
 
 async def send_monthly_summary(bot: Bot) -> None:
-    today = date.today()
+    today = _today()
     sym = config.CURRENCY_SYMBOL
     report = analytics.build_monthly_report(today.year, today.month, sym)
-    await _send_to_all(bot, f"📊 *Автоматический месячный отчёт*\n\n{report}")
+    month_names = ["январь", "февраль", "март", "апрель", "май", "июнь",
+                   "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]
+    month_name = month_names[today.month - 1]
+    await _send_to_all(bot, f"Амирхон ака, отчёт за {month_name} готов 📊\n\n{report}")
     logger.info("Месячный отчёт отправлен")
 
 
@@ -146,60 +154,60 @@ async def retry_queued_writes() -> None:
             database.increment_queue_retries(item["id"])
 
 
-def start_scheduler(bot: Bot, timezone: str = "UTC") -> AsyncIOScheduler:
-    global _scheduler
+def start_scheduler(bot: Bot, timezone: str = "Asia/Tashkent") -> AsyncIOScheduler:
+    global _scheduler, _tz
     if _scheduler and _scheduler.running:
         return _scheduler
 
     try:
-        tz = pytz.timezone(timezone)
+        _tz = pytz.timezone(timezone)
     except pytz.exceptions.UnknownTimeZoneError:
-        tz = pytz.UTC
-        logger.warning("Неизвестный часовой пояс '%s', используется UTC", timezone)
+        _tz = pytz.timezone("Asia/Tashkent")
+        logger.warning("Неизвестный часовой пояс '%s', используется Asia/Tashkent", timezone)
 
-    _scheduler = AsyncIOScheduler(timezone=tz)
+    _scheduler = AsyncIOScheduler(timezone=_tz)
 
-    # 3-day reminder at 9:00
+    # 3-day reminder at 09:00 Tashkent
     _scheduler.add_job(
         check_payment_reminders,
-        CronTrigger(hour=9, minute=0, timezone=tz),
+        CronTrigger(hour=9, minute=0, timezone=_tz),
         args=[bot, 3],
         id="check_payment_reminders",
         replace_existing=True,
     )
-    # 1-day reminder at 10:00
+    # 1-day reminder at 10:00 Tashkent
     _scheduler.add_job(
         check_payment_reminders,
-        CronTrigger(hour=10, minute=0, timezone=tz),
+        CronTrigger(hour=10, minute=0, timezone=_tz),
         args=[bot, 1],
         id="day_before_reminder",
         replace_existing=True,
     )
-    # On payment day at 11:00
+    # On payment day at 11:00 Tashkent
     _scheduler.add_job(
         check_payment_day,
-        CronTrigger(hour=11, minute=0, timezone=tz),
+        CronTrigger(hour=11, minute=0, timezone=_tz),
         args=[bot],
         id="payment_day_reminder",
         replace_existing=True,
     )
     _scheduler.add_job(
         check_overdue_payments,
-        CronTrigger(hour=9, minute=30, timezone=tz),
+        CronTrigger(hour=9, minute=30, timezone=_tz),
         args=[bot],
         id="overdue_reminder",
         replace_existing=True,
     )
     _scheduler.add_job(
         check_lease_expirations,
-        CronTrigger(hour=9, minute=0, timezone=tz),
+        CronTrigger(hour=9, minute=0, timezone=_tz),
         args=[bot],
         id="lease_expiry_reminder",
         replace_existing=True,
     )
     _scheduler.add_job(
         send_monthly_summary,
-        CronTrigger(day="last", hour=18, minute=0, timezone=tz),
+        CronTrigger(day="last", hour=18, minute=0, timezone=_tz),
         args=[bot],
         id="monthly_summary",
         replace_existing=True,
