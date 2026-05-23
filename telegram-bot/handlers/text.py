@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import date
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -6,13 +7,20 @@ from telegram.ext import ContextTypes
 import sheets
 import nlp
 import analytics
-from database import get_state, get_user_settings
-from handlers.start import main_menu_keyboard
+from database import get_state, get_user_settings, clear_state, save_user_settings
+from handlers.start import main_menu_keyboard, module_menu_keyboard
 
 logger = logging.getLogger(__name__)
 
+GREETING_PATTERN = re.compile(
+    r"^(привет|hello|hi|хай|меню|menu|старт|start|добрый день|добрый вечер|добрый утро|доброе утро)\.?!?$",
+    re.IGNORECASE,
+)
 
-async def free_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> None:
+
+async def free_text_handler(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None
+) -> None:
     user_id = update.effective_user.id
     state, _ = get_state(user_id)
 
@@ -20,19 +28,52 @@ async def free_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         return
 
     msg_text = text or update.message.text.strip()
+
+    # ── /delete confirmation ──────────────────────────────────
+    if state == "confirm_delete":
+        if msg_text.upper() in ("ДА", "DA", "YES"):
+            await update.message.reply_text("🗑 Удаляю все данные...")
+            import asyncio
+            ok = await asyncio.to_thread(sheets.clear_all_data)
+            clear_state(user_id)
+            save_user_settings(user_id, setup_done=0)
+            from handlers.start import start_command
+            await update.message.reply_text(
+                f"{'✅ Все данные удалены.' if ok else '⚠️ Частично удалено (ошибка Sheets).'}\n\n"
+                "Запускаю мастер настройки заново..."
+            )
+            await start_command(update, context)
+        else:
+            clear_state(user_id)
+            await update.message.reply_text(
+                "❌ Удаление отменено.",
+                reply_markup=module_menu_keyboard(),
+            )
+        return
+
+    # ── Greeting → module menu ────────────────────────────────
+    if GREETING_PATTERN.match(msg_text):
+        settings = get_user_settings(user_id)
+        if not settings.get("setup_done"):
+            from handlers.start import start_command
+            await start_command(update, context)
+        else:
+            await update.message.reply_text("👋 Привет! Выберите раздел:",
+                                            reply_markup=module_menu_keyboard())
+        return
+
+    # ── NLP free text ─────────────────────────────────────────
     known_objects = [o.get("name", "") for o in sheets.get_objects()]
     parsed = nlp.parse_free_text(msg_text, known_objects)
 
     if not parsed:
-        reply_msg = update.message
-        await reply_msg.reply_text(
+        await update.message.reply_text(
             "Не понял команду. Используйте меню или голосовое сообщение.\n\n"
-            "Примеры команд:\n"
-            "• /record_payment — записать платёж\n"
-            "• /record_expense — записать расход\n"
-            "• /report — отчёт\n"
-            "• /summary — сводка",
-            reply_markup=main_menu_keyboard(),
+            "Примеры:\n"
+            "• «Квартира 1 заплатила 500»\n"
+            "• «Расход ремонт 150$»\n"
+            "• «Отчёт за март»",
+            reply_markup=module_menu_keyboard(),
         )
         return
 
@@ -48,7 +89,7 @@ async def free_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         if not obj_name or not amount:
             await reply_msg.reply_text(
                 "Понял, что речь о платеже, но нужно указать объект и сумму.\n"
-                "Пример: \"Квартира 1 заплатила 500\" или /record_payment",
+                "Пример: «Квартира 1 заплатила 500» или /record_payment",
                 reply_markup=main_menu_keyboard(),
             )
             return
@@ -60,7 +101,7 @@ async def free_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         )
         if not obj:
             await reply_msg.reply_text(
-                f"Объект «{obj_name}» не найден. Используйте /objects для просмотра списка.",
+                f"Объект «{obj_name}» не найден. Используйте /objects для просмотра.",
                 reply_markup=main_menu_keyboard(),
             )
             return
@@ -75,9 +116,7 @@ async def free_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         }
         ok = sheets.record_payment(data)
         diff = amount - float(obj.get("rent_amount", 0))
-        diff_text = ""
-        if diff < 0:
-            diff_text = f"\n⚠️ Недоплата: {sym}{abs(diff):.2f}"
+        diff_text = f"\n⚠️ Недоплата: {sym}{abs(diff):.2f}" if diff < 0 else ""
         await reply_msg.reply_text(
             f"{'✅ Платёж записан!' if ok else '⚠️ Сохранено локально.'}\n\n"
             f"🏠 {obj.get('name')}: {sym}{amount:.2f}{diff_text}\n"
@@ -92,8 +131,7 @@ async def free_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
         if not amount:
             await reply_msg.reply_text(
-                "Понял, что речь о расходе, но нужно указать сумму.\n"
-                "Пример: \"Ремонт в офисе 150$\" или /record_expense",
+                "Понял расход, но нужна сумма.\nПример: «Ремонт в офисе 150$»",
                 reply_markup=main_menu_keyboard(),
             )
             return
@@ -132,5 +170,5 @@ async def free_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         await reply_msg.reply_text(
             "Используйте меню для навигации:",
-            reply_markup=main_menu_keyboard(),
+            reply_markup=module_menu_keyboard(),
         )
