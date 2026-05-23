@@ -104,13 +104,34 @@ def append_row(sheet_name: str, row: list) -> bool:
         return False
 
 
+_last_read_error: dict[str, bool] = {}
+
+
+def had_read_error(sheet_name: str) -> bool:
+    """Returns True if the most recent get_all_records call for this sheet failed."""
+    return _last_read_error.get(sheet_name, False)
+
+
 def get_all_records(sheet_name: str) -> list[dict]:
-    try:
-        ws = _get_or_create_sheet(sheet_name)
-        return ws.get_all_records()
-    except Exception as e:
-        logger.error("Failed to read '%s': %s", sheet_name, e)
-        return []
+    global _spreadsheet
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            ws = _get_or_create_sheet(sheet_name)
+            result = ws.get_all_records()
+            _last_read_error[sheet_name] = False
+            return result
+        except Exception as e:
+            last_exc = e
+            logger.warning(
+                "Sheets read error '%s' (attempt %d/3): %s", sheet_name, attempt + 1, e
+            )
+            _spreadsheet = None  # force reconnect on next attempt
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+    logger.error("Failed to read '%s' after 3 attempts: %s", sheet_name, last_exc)
+    _last_read_error[sheet_name] = True
+    return []
 
 
 def update_cell_by_key(sheet_name: str, key_col: str, key_val: str,
