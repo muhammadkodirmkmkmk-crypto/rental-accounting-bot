@@ -10,125 +10,141 @@ logger = logging.getLogger(__name__)
 HOUR_OPTIONS = [7, 8, 9, 10, 11, 12, 13, 14]
 
 
-def _hour_keyboard(callback_prefix: str, current: int) -> InlineKeyboardMarkup:
-    """Build a row of hour buttons, marking the current selection with ✅."""
-    row1 = []
-    row2 = []
-    for h in HOUR_OPTIONS[:4]:
-        label = f"✅ {h:02d}:00" if h == current else f"{h:02d}:00"
-        row1.append(InlineKeyboardButton(label, callback_data=f"{callback_prefix}{h}"))
-    for h in HOUR_OPTIONS[4:]:
-        label = f"✅ {h:02d}:00" if h == current else f"{h:02d}:00"
-        row2.append(InlineKeyboardButton(label, callback_data=f"{callback_prefix}{h}"))
-    return InlineKeyboardMarkup([row1, row2, [InlineKeyboardButton("◀ Главное меню", callback_data="menu_main")]])
+def _reminder_keyboard(main_hour: int, day_before_hour: int) -> InlineKeyboardMarkup:
+    """
+    Single all-in-one keyboard:
+      - label row  (non-clickable separator)
+      - 2 rows of hour buttons for main reminders  (rem_hour_N)
+      - label row
+      - 2 rows of hour buttons for day-before      (rem_daybefore_N)
+      - back button
+    """
+    def _row(hours, prefix, current):
+        return [
+            InlineKeyboardButton(
+                f"✅ {h:02d}:00" if h == current else f"{h:02d}:00",
+                callback_data=f"{prefix}{h}",
+            )
+            for h in hours
+        ]
+
+    rows = [
+        # ── Main reminder label + buttons ─────────────────────
+        [InlineKeyboardButton("🕐  Основные напоминания:", callback_data="rem_noop")],
+        _row(HOUR_OPTIONS[:4], "rem_hour_", main_hour),
+        _row(HOUR_OPTIONS[4:], "rem_hour_", main_hour),
+        # ── Day-before label + buttons ─────────────────────────
+        [InlineKeyboardButton("⏰  За 1 день до оплаты:", callback_data="rem_noop")],
+        _row(HOUR_OPTIONS[:4], "rem_daybefore_", day_before_hour),
+        _row(HOUR_OPTIONS[4:], "rem_daybefore_", day_before_hour),
+        # ── Navigation ────────────────────────────────────────
+        [InlineKeyboardButton("◀ Главное меню", callback_data="module_main")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def _reminder_text(main_hour: int, day_before_hour: int) -> str:
+    return (
+        "Амирхон ака, настройка напоминаний ⏰\n\n"
+        "🌏 Часовой пояс: *Asia/Tashkent* (UTC+5)\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📋 *Активные напоминания:*\n"
+        f"  • Основные — {main_hour:02d}:00\n"
+        f"    (просрочка, день оплаты, конец договора)\n"
+        f"  • За 1 день до оплаты — {day_before_hour:02d}:00\n"
+        "  • Ежемесячный отчёт (последний день) — 18:00\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Выберите время для каждого типа 👇"
+    )
 
 
 async def set_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    msg = update.message
+    """Open (or refresh) the reminders screen — works from both /command and callback."""
     if update.callback_query:
         await update.callback_query.answer()
-        msg = update.callback_query.message
-
-    user_id = msg.chat.id if msg else update.effective_user.id
-    settings = get_user_settings(user_id)
-    hour = settings.get("reminder_hour", 9)
-    day_before = settings.get("reminder_day_before_hour", 9)
-
-    text = (
-        f"Амирхон ака, настройка напоминаний ⏰\n\n"
-        f"🌏 Часовой пояс: *Asia/Tashkent* (UTC+5)\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📋 *Активные напоминания:*\n"
-        f"  • В день оплаты — {hour:02d}:00\n"
-        f"  • При просрочке — {hour:02d}:00\n"
-        f"  • За 30 дней до конца договора — {hour:02d}:00\n"
-        f"  • Ежемесячный отчёт (последний день) — 18:00\n\n"
-        f"  • За 1 день до оплаты — {day_before:02d}:00\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🕐 *Выберите время основных напоминаний:*"
-    )
-
-    await msg.reply_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=_hour_keyboard("rem_hour_", hour),
-    )
-
-
-async def set_day_before_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show time picker specifically for the 1-day-before reminder."""
-    msg = update.message
-    if update.callback_query:
-        await update.callback_query.answer()
-        msg = update.callback_query.message
-
-    user_id = msg.chat.id if msg else update.effective_user.id
-    settings = get_user_settings(user_id)
-    day_before = settings.get("reminder_day_before_hour", 9)
-
-    await msg.reply_text(
-        f"Амирхон ака, настройка напоминания «За 1 день до оплаты» ⏰\n\n"
-        f"Сейчас: *{day_before:02d}:00*\n\n"
-        f"Выберите, в котором часу напоминать:",
-        parse_mode="Markdown",
-        reply_markup=_hour_keyboard("rem_daybefore_", day_before),
-    )
+        user_id = update.callback_query.from_user.id
+        settings = get_user_settings(user_id)
+        hour = settings.get("reminder_hour", 9)
+        day_before = settings.get("reminder_day_before_hour", 9)
+        try:
+            await update.callback_query.edit_message_text(
+                _reminder_text(hour, day_before),
+                parse_mode="Markdown",
+                reply_markup=_reminder_keyboard(hour, day_before),
+            )
+        except Exception:
+            await update.callback_query.message.reply_text(
+                _reminder_text(hour, day_before),
+                parse_mode="Markdown",
+                reply_markup=_reminder_keyboard(hour, day_before),
+            )
+    else:
+        msg = update.message
+        user_id = msg.from_user.id
+        settings = get_user_settings(user_id)
+        hour = settings.get("reminder_hour", 9)
+        day_before = settings.get("reminder_day_before_hour", 9)
+        await msg.reply_text(
+            _reminder_text(hour, day_before),
+            parse_mode="Markdown",
+            reply_markup=_reminder_keyboard(hour, day_before),
+        )
 
 
 async def set_reminder_hour_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle rem_hour_N callback — update main reminder hour."""
+    """rem_hour_N — save main hour and refresh the same message."""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     hour = int(query.data.replace("rem_hour_", ""))
-    settings = get_user_settings(user_id)
-    day_before = settings.get("reminder_day_before_hour", 9)
     save_user_settings(user_id, reminder_hour=hour)
 
-    # Reschedule APScheduler jobs with the new hour
+    settings = get_user_settings(user_id)
+    day_before = settings.get("reminder_day_before_hour", 9)
+
     try:
-        from scheduler import reschedule_reminders
         import asyncio
+        from scheduler import reschedule_reminders
         await asyncio.to_thread(reschedule_reminders, context.application.bot, hour, day_before)
     except Exception as e:
         logger.warning("Could not reschedule: %s", e)
 
     await query.edit_message_text(
-        f"Амирхон ака, время напоминаний обновлено ✅\n\n"
-        f"🕐 Основные напоминания: *{hour:02d}:00*\n"
-        f"🕐 За 1 день до оплаты: *{day_before:02d}:00*\n\n"
-        f"Напоминания будут приходить по времени Asia/Tashkent.",
+        _reminder_text(hour, day_before),
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("⏰ За 1 день до оплаты", callback_data="rem_set_daybefore")],
-            [InlineKeyboardButton("◀ Назад к напоминаниям", callback_data="menu_set_reminder")],
-        ]),
+        reply_markup=_reminder_keyboard(hour, day_before),
     )
 
 
 async def set_day_before_hour_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle rem_daybefore_N callback — update day-before reminder hour."""
+    """rem_daybefore_N — save day-before hour and refresh the same message."""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     hour = int(query.data.replace("rem_daybefore_", ""))
-    settings = get_user_settings(user_id)
-    main_hour = settings.get("reminder_hour", 9)
     save_user_settings(user_id, reminder_day_before_hour=hour)
 
+    settings = get_user_settings(user_id)
+    main_hour = settings.get("reminder_hour", 9)
+
     try:
-        from scheduler import reschedule_reminders
         import asyncio
+        from scheduler import reschedule_reminders
         await asyncio.to_thread(reschedule_reminders, context.application.bot, main_hour, hour)
     except Exception as e:
         logger.warning("Could not reschedule: %s", e)
 
     await query.edit_message_text(
-        f"Амирхон ака, время обновлено ✅\n\n"
-        f"🕐 За 1 день до оплаты: *{hour:02d}:00*\n"
-        f"🕐 Основные напоминания: *{main_hour:02d}:00*",
+        _reminder_text(main_hour, hour),
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀ К напоминаниям", callback_data="menu_set_reminder")],
-        ]),
+        reply_markup=_reminder_keyboard(main_hour, hour),
     )
+
+
+async def reminder_noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Label buttons — just acknowledge, do nothing."""
+    await update.callback_query.answer()
+
+
+# Keep this for backward compat (menu_set_reminder routes here)
+set_day_before_command = set_reminder_command
