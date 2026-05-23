@@ -183,9 +183,9 @@ async def _save_personal(msg, user_id: int, data: dict) -> None:
     clear_state(user_id)
     sym = data.get("symbol", "$")
     emoji = "📥" if data.get("type") == "income" else "📤"
-    action = "Доход" if data.get("type") == "income" else "Расход"
+    action = "доход" if data.get("type") == "income" else "расход"
     await msg.reply_text(
-        f"{'✅' if ok else '⚠️'} {action} {'записан!' if ok else 'сохранён локально.'}\n\n"
+        f"{'Амирхон ака, ' + action + ' записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
         f"{emoji} {data.get('category')}: {sym}{data.get('amount', 0):.2f}\n"
         f"📝 {data.get('description') or '—'}\n"
         f"📅 {row_data['date']}",
@@ -228,7 +228,8 @@ async def personal_report_command(update: Update, context: ContextTypes.DEFAULT_
                   "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"][today.month - 1]
 
     text = (
-        f"💰 *Личные финансы — {month_name} {today.year}*\n"
+        f"Амирхон ака, вот ваш отчёт по личным финансам 📊\n\n"
+        f"💰 *{month_name} {today.year}*\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"📥 Доходы: {sym}{total_income:.2f}\n"
         f"📤 Расходы: {sym}{total_expense:.2f}\n"
