@@ -303,3 +303,187 @@ def stop_scheduler() -> None:
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
         logger.info("Планировщик остановлен")
+
+
+# ── Personal reminders ────────────────────────────────────────
+
+async def _fire_reminder(
+    bot: Bot,
+    user_id: int,
+    reminder_id: str,
+    text: str,
+    recurring: str,
+) -> None:
+    """Send a personal reminder and mark one-time reminders as sent."""
+    now = datetime.now(_tz)
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text=(
+                f"⏰ *Амирхон ака, напоминание!*\n\n"
+                f"{text}\n\n"
+                f"🕐 {now.strftime('%H:%M')}  📅 {now.strftime('%d.%m.%Y')}"
+            ),
+            parse_mode="Markdown",
+        )
+        logger.info("Reminder %s fired for user %d", reminder_id, user_id)
+    except Exception as e:
+        logger.error("Reminder %s send failed: %s", reminder_id, e)
+        return
+
+    if recurring == "none":
+        try:
+            await asyncio.to_thread(sheets.update_reminder_status, reminder_id, "sent")
+        except Exception as e:
+            logger.error("Mark reminder %s as sent failed: %s", reminder_id, e)
+
+
+def schedule_reminder(
+    bot: Bot,
+    user_id: int,
+    reminder_id: str,
+    run_dt: datetime,
+    message_text: str,
+    recurring: str = "none",
+) -> bool:
+    """
+    Schedule a personal reminder (one-time or recurring).
+    run_dt must be timezone-aware (Asia/Tashkent).
+    recurring: 'none' | 'daily' | 'weekly' | 'monthly'
+    """
+    global _scheduler
+    if not _scheduler or not _scheduler.running:
+        logger.warning("Scheduler not running — cannot schedule reminder %s", reminder_id)
+        return False
+
+    job_id = f"rem_{user_id}_{reminder_id}"
+    args = [bot, user_id, reminder_id, message_text, recurring]
+
+    try:
+        if recurring == "none":
+            _scheduler.add_job(
+                _fire_reminder,
+                "date",
+                run_date=run_dt,
+                args=args,
+                id=job_id,
+                replace_existing=True,
+            )
+        elif recurring == "daily":
+            _scheduler.add_job(
+                _fire_reminder,
+                CronTrigger(hour=run_dt.hour, minute=run_dt.minute, timezone=_tz),
+                args=args,
+                id=job_id,
+                replace_existing=True,
+            )
+        elif recurring == "weekly":
+            _scheduler.add_job(
+                _fire_reminder,
+                CronTrigger(
+                    day_of_week=run_dt.weekday(),
+                    hour=run_dt.hour,
+                    minute=run_dt.minute,
+                    timezone=_tz,
+                ),
+                args=args,
+                id=job_id,
+                replace_existing=True,
+            )
+        elif recurring == "monthly":
+            _scheduler.add_job(
+                _fire_reminder,
+                CronTrigger(
+                    day=run_dt.day,
+                    hour=run_dt.hour,
+                    minute=run_dt.minute,
+                    timezone=_tz,
+                ),
+                args=args,
+                id=job_id,
+                replace_existing=True,
+            )
+        else:
+            logger.warning("Unknown recurring type '%s', scheduling as one-time", recurring)
+            _scheduler.add_job(
+                _fire_reminder,
+                "date",
+                run_date=run_dt,
+                args=args,
+                id=job_id,
+                replace_existing=True,
+            )
+
+        logger.info(
+            "Personal reminder scheduled: %s | recurring=%s | run_dt=%s",
+            job_id, recurring, run_dt.isoformat(),
+        )
+        return True
+
+    except Exception as e:
+        logger.error("schedule_reminder error for %s: %s", job_id, e)
+        return False
+
+
+def cancel_reminder(job_id: str) -> bool:
+    """Remove a scheduled reminder job. Returns True if removed."""
+    global _scheduler
+    if not _scheduler or not _scheduler.running:
+        return False
+    try:
+        _scheduler.remove_job(job_id)
+        logger.info("Reminder cancelled: %s", job_id)
+        return True
+    except Exception as e:
+        logger.warning("cancel_reminder %s: %s", job_id, e)
+        return False
+
+
+def load_reminders_from_sheets(bot: Bot) -> None:
+    """
+    Restore all active reminders from Google Sheets on bot startup.
+    Called synchronously from post_init (before the event loop is busy).
+    """
+    try:
+        all_reminders = sheets.get_reminders(status="active")
+        now = datetime.now(_tz)
+        scheduled = 0
+        expired = 0
+
+        for r in all_reminders:
+            rid = str(r.get("id", "")).strip()
+            uid_str = str(r.get("user_id", "")).strip()
+            dt_str = str(r.get("datetime", "")).strip()
+            text = str(r.get("text", "Напоминание"))
+            recurring = str(r.get("recurring", "none"))
+
+            if not rid or not uid_str or not dt_str:
+                continue
+            try:
+                user_id = int(uid_str)
+            except ValueError:
+                continue
+            try:
+                run_dt = _tz.localize(datetime.strptime(dt_str[:16], "%Y-%m-%d %H:%M"))
+            except ValueError:
+                logger.warning("Bad datetime format in reminder %s: %s", rid, dt_str)
+                continue
+
+            if recurring == "none" and run_dt <= now:
+                try:
+                    sheets.update_reminder_status(rid, "sent")
+                except Exception:
+                    pass
+                expired += 1
+                continue
+
+            ok = schedule_reminder(bot, user_id, rid, run_dt, text, recurring)
+            if ok:
+                scheduled += 1
+
+        logger.info(
+            "Reminders restored: %d scheduled, %d expired/skipped",
+            scheduled, expired,
+        )
+    except Exception as e:
+        logger.error("load_reminders_from_sheets error: %s", e)
