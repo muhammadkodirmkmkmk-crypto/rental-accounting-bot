@@ -78,9 +78,10 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     expenses = await asyncio.to_thread(sheets.get_expenses_for_month, year, month)
     objects = await asyncio.to_thread(sheets.get_objects)
 
-    total_income = sum(float(p.get("received_amount", 0)) for p in payments)
-    total_expected = sum(float(o.get("rent_amount", 0)) for o in objects if o.get("status") == "rented")
-    total_expenses = sum(float(e.get("amount", 0)) for e in expenses)
+    from utils import safe_float
+    total_income = sum(safe_float(p.get("received_amount")) for p in payments)
+    total_expected = sum(safe_float(o.get("rent_amount")) for o in objects if o.get("status") == "rented")
+    total_expenses = sum(safe_float(e.get("amount")) for e in expenses)
     net_profit = total_income - total_expenses
 
     occ = analytics.occupancy_rate()
