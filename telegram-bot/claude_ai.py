@@ -1,8 +1,8 @@
-"""Claude AI brain for the rental accounting bot."""
+"""Claude AI brain — always returns structured JSON, never fails silently."""
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import anthropic as _anthropic
 
@@ -21,13 +21,8 @@ def _get_client() -> _anthropic.Anthropic:
     return _client
 
 
-def _today_str() -> str:
-    return datetime.now(_TZ).strftime("%d.%m.%Y")
-
-
-def _month_name_ru() -> str:
-    return ["январь", "февраль", "март", "апрель", "май", "июнь",
-            "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"][datetime.now(_TZ).month - 1]
+def _now() -> datetime:
+    return datetime.now(_TZ)
 
 
 def _build_system_prompt(
@@ -35,109 +30,150 @@ def _build_system_prompt(
     clients: list[dict],
     payments: list[dict],
 ) -> str:
-    today = _today_str()
-    month = _month_name_ru()
-    now = datetime.now(_TZ)
+    now = _now()
+    today_str = now.strftime("%d.%m.%Y")
+    tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    today_iso = now.strftime("%Y-%m-%d")
+    month_ru = ["январь","февраль","март","апрель","май","июнь",
+                "июль","август","сентябрь","октябрь","ноябрь","декабрь"][now.month - 1]
 
     obj_lines = []
     for o in objects:
         obj_lines.append(
-            f"  • ID={o.get('id')} | {o.get('name')} | "
-            f"Арендатор: {o.get('tenant_name', '—')} | "
-            f"Тел: {o.get('tenant_phone', '—')} | "
-            f"Аренда: {o.get('rent_amount', 0)}/мес | "
-            f"День оплаты: {o.get('payment_day', '?')} | "
-            f"Статус: {o.get('status', 'rented')}"
+            f"  • [{o.get('id')}] {o.get('name')} | "
+            f"Арендатор: {o.get('tenant_name','—')} {o.get('tenant_phone','')} | "
+            f"Аренда: {o.get('rent_amount',0)}/мес | "
+            f"День оплаты: {o.get('payment_day','?')} | "
+            f"Статус: {o.get('status','rented')}"
         )
-    objects_text = "\n".join(obj_lines) if obj_lines else "  (объектов нет)"
+    objects_text = "\n".join(obj_lines) or "  (нет объектов)"
 
     cl_lines = []
     for c in clients:
         cl_lines.append(
-            f"  • ID={c.get('id')} | {c.get('name')} | "
-            f"Оплата: {c.get('monthly_fee', 0)}/мес | "
-            f"День: {c.get('payment_day', '?')}"
+            f"  • [{c.get('id')}] {c.get('name')} | "
+            f"Оплата: {c.get('monthly_fee',0)}/мес | "
+            f"День: {c.get('payment_day','?')}"
         )
-    clients_text = "\n".join(cl_lines) if cl_lines else "  (клиентов нет)"
+    clients_text = "\n".join(cl_lines) or "  (нет клиентов)"
 
     pay_lines = []
     for p in payments:
         pay_lines.append(
-            f"  • {p.get('object_name', '?')}: получено {p.get('received_amount', 0)}, "
-            f"ожидалось {p.get('expected_amount', 0)}, "
-            f"статус: {p.get('status', '?')}, дата: {p.get('date', '?')}"
+            f"  • {p.get('object_name','?')}: "
+            f"получено {p.get('received_amount',0)}, "
+            f"ожидалось {p.get('expected_amount',0)}, "
+            f"статус: {p.get('status','?')}, дата: {p.get('date','?')}"
         )
-    payments_text = "\n".join(pay_lines) if pay_lines else "  (платежей за этот месяц нет)"
+    payments_text = "\n".join(pay_lines) or "  (платежей за этот месяц нет)"
 
-    return f"""Ты — умный финансовый ассистент и правая рука Амирхона аки.
-Сегодня {today} ({month} {now.year}). Часовой пояс: Asia/Tashkent (UTC+5).
+    return f"""Ты — финансовый ассистент Амирхона аки. Сегодня {today_str} ({month_ru} {now.year}). Часовой пояс: Asia/Tashkent (UTC+5).
 
-━━ ОБЪЕКТЫ АРЕНДЫ ━━
+━━ ДАННЫЕ ПОЛЬЗОВАТЕЛЯ ━━
+
+ОБЪЕКТЫ АРЕНДЫ:
 {objects_text}
 
-━━ КЛИЕНТЫ ТАРГЕТИНГА ━━
+КЛИЕНТЫ ТАРГЕТИНГА:
 {clients_text}
 
-━━ ПЛАТЕЖИ ЗА ТЕКУЩИЙ МЕСЯЦ ({month.upper()}) ━━
+ПЛАТЕЖИ ЗА {month_ru.upper()} {now.year}:
 {payments_text}
 
-━━ ПРАВИЛА ━━
-1. Всегда отвечай на РУССКОМ языке. Обращайся к пользователю "Амирхон ака".
-2. Понимай сообщения на русском, узбекском и английском.
-3. Будь краток и дружелюбен. Используй эмодзи умеренно.
-4. Если пользователь хочет выполнить ДЕЙСТВИЕ — верни ТОЛЬКО валидный JSON (без markdown, без пояснений).
-5. Если анализируешь или отвечаешь на вопрос — верни обычный текст.
+━━ ГЛАВНОЕ ПРАВИЛО ━━
+Ты ВСЕГДА возвращаешь ТОЛЬКО JSON. Никакого обычного текста. Никогда.
+Обращайся к пользователю «Амирхон ака». Всегда отвечай на русском языке.
+Никогда не говори «не могу», «не понимаю», «не знаю».
 
-━━ JSON-ДЕЙСТВИЯ (только JSON, без других слов) ━━
-Записать платёж аренды:
-{{"action":"record_payment","object_name":"точное название объекта","amount":300}}
+━━ СПИСОК ДЕЙСТВИЙ ━━
 
-Записать расход:
-{{"action":"record_expense","object_name":"название или null","category":"repair|utilities|tax|insurance|management|advertising|other","amount":50}}
+1. Записать платёж аренды:
+{{"action":"record_payment","object":"название объекта","amount":300,"currency":"USD"}}
 
-Отчёт за месяц:
-{{"action":"get_report","month":5,"year":2025}}
+2. Записать расход:
+{{"action":"record_expense","object":"название или null","amount":50,"category":"ремонт|коммунальные|налоги|страховка|управление|реклама|прочее"}}
 
-Сводка за текущий месяц:
-{{"action":"get_summary"}}
+3. Добавить объект аренды:
+{{"action":"add_object","name":"Квартира 1","address":"ул. Ленина 5","rent":300,"tenant_name":"Иван","tenant_phone":"+998901234567","payment_day":1}}
 
-Список объектов:
-{{"action":"list_objects"}}
+4. Добавить клиента таргетинга:
+{{"action":"add_client","name":"ИП Иванов","fee":500,"payment_day":10}}
 
-Список арендаторов:
-{{"action":"list_tenants"}}
+5. Записать платёж от клиента таргетинга:
+{{"action":"record_target_payment","client":"ИП Иванов","amount":500}}
 
-Установить напоминание (дата в формате YYYY-MM-DD, время HH:MM в Asia/Tashkent):
-{{"action":"set_reminder","object_name":"Офис или null","date":"{now.strftime('%Y-%m-%d')}","time":"09:00","message":"Оплата аренды"}}
+6. Показать отчёт за месяц:
+{{"action":"show_report","period":"may_2026","module":"rent"}}
 
-━━ ПРИМЕРЫ РАСПОЗНАВАНИЯ ━━
-"Квартира Чиланзар заплатила 300 баксов" → {{"action":"record_payment","object_name":"Квартира Чиланзар","amount":300}}
-"Покажи сколько заработал в мае" → {{"action":"get_report","month":5,"year":{now.year}}}
-"Добавь расход 50 на ремонт в офисе" → {{"action":"record_expense","object_name":"офис","category":"repair","amount":50}}
-"Как дела с платежами?" → аналитический ответ текстом (смотри данные выше и дай оценку)
-"Сводка" → {{"action":"get_summary"}}
-"Покажи арендаторов" → {{"action":"list_tenants"}}
-"Напомни завтра в 10:00 про оплату офиса" → {{"action":"set_reminder","object_name":"офис","date":"{(datetime.now(_TZ).date() + __import__('datetime').timedelta(days=1)).strftime('%Y-%m-%d')}","time":"10:00","message":"Оплата аренды офиса"}}
-"Поставь напоминание на 25 мая в 13:30" → {{"action":"set_reminder","object_name":null,"date":"{now.year}-05-25","time":"13:30","message":"Напоминание"}}
+7. Показать объекты:
+{{"action":"show_objects"}}
 
-━━ ВАЖНО ПРО НАПОМИНАНИЯ ━━
-Бот УМЕЕТ устанавливать напоминания через APScheduler. Когда пользователь просит напомнить —
-ВСЕГДА возвращай JSON с action="set_reminder". Никогда не говори что не можешь установить напоминание.
-Если дата/время не указаны явно — уточни у пользователя.
+8. Показать клиентов таргетинга:
+{{"action":"show_clients"}}
+
+9. Показать сводку (текущий месяц):
+{{"action":"show_summary"}}
+
+10. Установить напоминание (datetime в Asia/Tashkent):
+{{"action":"set_reminder","text":"Оплата аренды офиса","datetime":"{today_iso} 09:00","object":"Офис или null"}}
+
+11. Ответить на вопрос / просто поговорить / если непонятно что хочет:
+{{"action":"reply","text":"Амирхон ака, [твой ответ]"}}
+
+━━ ПРАВИЛА РАСПОЗНАВАНИЯ ━━
+
+ФИНАНСОВЫЕ ОПЕРАЦИИ → всегда JSON с финансовым action (не reply):
+• «заплатил», «оплатил», «получил», «платёж», «payment» → record_payment
+• «расход», «трата», «потратил», «ремонт», «expense» → record_expense
+• «добавь объект», «новая квартира», «новый офис» → add_object
+• «добавь клиента», «новый клиент таргет» → add_client
+• «клиент заплатил», «таргет оплата» → record_target_payment
+
+ИНФОРМАЦИЯ → всегда JSON с информационным action (не reply):
+• «покажи объекты», «мои объекты» → show_objects
+• «покажи клиентов» → show_clients
+• «отчёт за [месяц]» → show_report
+• «сводка», «итого», «summary» → show_summary
+
+НАПОМИНАНИЯ → всегда set_reminder:
+• «напомни», «поставь напоминание», «не забыть» → set_reminder
+• datetime всегда в формате "YYYY-MM-DD HH:MM"
+• Завтра = {tomorrow_str}, сегодня = {today_iso}
+
+ВСЁ ОСТАЛЬНОЕ → reply:
+• Вопросы, советы, аналитика, разговор, непонятные сообщения
+
+━━ ПРИМЕРЫ ━━
+«Офис заплатил 300 баксов» → {{"action":"record_payment","object":"Офис","amount":300,"currency":"USD"}}
+«Расход 50 на ремонт» → {{"action":"record_expense","object":null,"amount":50,"category":"ремонт"}}
+«Напомни завтра в 10:00 про оплату» → {{"action":"set_reminder","text":"Оплата аренды","datetime":"{tomorrow_str} 10:00","object":null}}
+«Как дела?» → {{"action":"reply","text":"Амирхон ака, всё хорошо! Чем могу помочь?"}}
+«Отчёт за май» → {{"action":"show_report","period":"may_{now.year}","module":"rent"}}
+«Сколько я заработал?» → {{"action":"show_summary"}}
+
+━━ ВАЖНО ━━
+- Если информации не хватает (нет суммы/объекта/даты) → задай ОДИН самый важный вопрос через {{"action":"reply","text":"...?"}}
+- Никогда не возвращай текст вне JSON
+- Никогда не пиши markdown-блоки типа ```json
 """
 
 
 def _extract_json(text: str) -> dict | None:
-    """Extract the first JSON object from Claude's response."""
+    """Extract the first valid JSON object from Claude's response."""
     text = text.strip()
-    # Try full text as JSON first
+
+    # Strip markdown code blocks if present
+    text = re.sub(r"```(?:json)?\s*", "", text).strip()
+
+    # Try full text as JSON
     try:
         data = json.loads(text)
         if isinstance(data, dict):
             return data
     except (json.JSONDecodeError, ValueError):
         pass
-    # Try to find a JSON block inside text (e.g. wrapped in markdown)
+
+    # Try to find first {...} block
     m = re.search(r'\{[\s\S]*?\}', text)
     if m:
         try:
@@ -146,6 +182,17 @@ def _extract_json(text: str) -> dict | None:
                 return data
         except (json.JSONDecodeError, ValueError):
             pass
+
+    # Greedy search for largest {...} block
+    m = re.search(r'\{[\s\S]*\}', text)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
+
     return None
 
 
@@ -156,12 +203,8 @@ def process_message(
     payments: list[dict],
 ) -> dict:
     """
-    Send user message to Claude with full rental context.
-
-    Returns one of:
-      {"type": "action", "action": "record_payment", ...}   # structured action
-      {"type": "text",   "content": "..."}                  # plain text reply
-      {"type": "error",  "content": "..."}                  # API/network error
+    Send user message to Claude. Always returns a dict with 'action' key.
+    On any failure, returns a safe reply action.
     """
     try:
         client = _get_client()
@@ -175,24 +218,26 @@ def process_message(
         )
 
         raw = response.content[0].text.strip()
-        logger.info("Claude raw response (%d chars): %s", len(raw), raw[:300])
+        logger.info("Claude raw (%d chars): %s", len(raw), raw[:400])
 
         parsed = _extract_json(raw)
         if parsed and "action" in parsed:
-            logger.info("Claude action detected: %s", parsed.get("action"))
-            return {"type": "action", **parsed}
+            logger.info("Claude action: %s", parsed.get("action"))
+            return parsed
 
-        return {"type": "text", "content": raw}
+        # Claude returned non-JSON — treat as reply text
+        logger.warning("Claude returned non-JSON, wrapping as reply: %s", raw[:200])
+        return {"action": "reply", "text": raw}
 
     except _anthropic.AuthenticationError as e:
         logger.error("Claude auth error: %s", e)
-        return {"type": "error", "content": "ошибка авторизации Claude API"}
+        return {"action": "reply", "text": "Амирхон ака, ошибка авторизации Claude API. Проверьте ANTHROPIC_API_KEY."}
     except _anthropic.RateLimitError as e:
         logger.warning("Claude rate limit: %s", e)
-        return {"type": "error", "content": "Claude API перегружен, попробуйте через минуту"}
+        return {"action": "reply", "text": "Амирхон ака, Claude API перегружен. Попробуйте через минуту."}
     except _anthropic.APIConnectionError as e:
         logger.error("Claude connection error: %s", e)
-        return {"type": "error", "content": "нет соединения с Claude API"}
+        return {"action": "reply", "text": "Амирхон ака, нет соединения с Claude. Попробуйте снова."}
     except Exception as e:
-        logger.error("Claude unexpected error: %s: %s", type(e).__name__, e)
-        return {"type": "error", "content": f"ошибка AI ({type(e).__name__})"}
+        logger.error("Claude unexpected error %s: %s", type(e).__name__, e)
+        return {"action": "reply", "text": f"Амирхон ака, временная ошибка AI. Попробуйте снова."}
