@@ -6,17 +6,11 @@ from typing import Any
 
 import gspread
 from gspread.exceptions import APIError
-from oauth2client.service_account import ServiceAccountCredentials
 
 import config
 from database import enqueue_sheet_write
 
 logger = logging.getLogger(__name__)
-
-SCOPE = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive",
-]
 
 SHEET_HEADERS: dict[str, list[str]] = {
     "Objects": [
@@ -48,10 +42,7 @@ _spreadsheet: gspread.Spreadsheet | None = None
 def _get_client() -> gspread.Client:
     global _gc
     if _gc is None:
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(
-            config.GOOGLE_CREDS_DICT, SCOPE
-        )
-        _gc = gspread.authorize(creds)
+        _gc = gspread.service_account_from_dict(config.GOOGLE_CREDS_DICT)
     return _gc
 
 
