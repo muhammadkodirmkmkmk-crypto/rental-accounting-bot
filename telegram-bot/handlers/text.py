@@ -13,6 +13,13 @@ import scheduler as sched
 from database import get_state, get_user_settings, clear_state, save_user_settings
 from handlers.start import main_menu_keyboard, module_menu_keyboard, targeting_menu_keyboard
 
+RECURRING_LABELS = {
+    "none":    "разовое",
+    "daily":   "ежедневно",
+    "weekly":  "еженедельно",
+    "monthly": "ежемесячно",
+}
+
 logger = logging.getLogger(__name__)
 
 _TZ = pytz.timezone("Asia/Tashkent")
@@ -303,9 +310,9 @@ async def _dispatch_action(
             reply_markup=main_menu_keyboard(),
         )
 
-    # ── Set one-time reminder ──────────────────────────────────
+    # ── Set personal reminder (one-time or recurring) ──────────
     elif action == "set_reminder":
-        # Support both "datetime" field and separate "date"+"time" fields
+        # Accept combined "datetime" field or separate "date"+"time"
         dt_str = str(action_data.get("datetime") or "").strip()
         if not dt_str:
             date_part = str(action_data.get("date", "")).strip()
@@ -314,6 +321,9 @@ async def _dispatch_action(
 
         message_text = str(action_data.get("text") or action_data.get("message", "Напоминание")).strip()
         obj_name = action_data.get("object") or action_data.get("object_name")
+        recurring = str(action_data.get("recurring", "none")).strip().lower()
+        if recurring not in ("none", "daily", "weekly", "monthly"):
+            recurring = "none"
 
         if not dt_str or len(dt_str) < 10:
             await reply_msg.reply_text(
@@ -322,7 +332,6 @@ async def _dispatch_action(
             )
             return
 
-        # Ensure HH:MM if only date given
         if len(dt_str) == 10:
             dt_str += " 09:00"
 
@@ -331,30 +340,39 @@ async def _dispatch_action(
             run_dt = _TZ.localize(run_dt_naive)
         except ValueError:
             await reply_msg.reply_text(
-                f"Амирхон ака, не смог разобрать дату «{dt_str}».\n"
-                "Формат: 2026-05-25 14:30",
+                f"Амирхон ака, не смог разобрать дату «{dt_str}».\nФормат: 2026-05-25 14:30",
                 reply_markup=module_menu_keyboard(),
             )
             return
 
-        if run_dt <= datetime.now(_TZ):
+        if recurring == "none" and run_dt <= datetime.now(_TZ):
             await reply_msg.reply_text(
                 "Амирхон ака, это время уже прошло. Укажите будущую дату.",
                 reply_markup=module_menu_keyboard(),
             )
             return
 
-        prefix = f"🏠 {obj_name}\n" if obj_name and str(obj_name).lower() != "null" else ""
-        full_message = f"⏰ *Напоминание*\n\n{prefix}📝 {message_text}"
+        # Build the notification message text
+        obj_prefix = f"🏠 {obj_name}\n" if obj_name and str(obj_name).lower() not in ("", "null") else ""
+        fire_text = f"{obj_prefix}📝 {message_text}"
 
-        ok = sched.schedule_one_time_reminder(bot, user_id, run_dt, full_message)
+        # 1. Save to Google Sheets
+        reminder_id = await asyncio.to_thread(
+            sheets.add_reminder, user_id, dt_str[:16], message_text, recurring
+        )
+
+        # 2. Schedule the job
+        ok = sched.schedule_reminder(bot, user_id, reminder_id or "x", run_dt, fire_text, recurring)
+
         date_display = run_dt.strftime("%d.%m.%Y в %H:%M")
-        obj_part = f"\n🏠 {obj_name}" if obj_name and str(obj_name).lower() != "null" else ""
+        rec_label = RECURRING_LABELS.get(recurring, recurring)
+        obj_part = f"\n🏠 {obj_name}" if obj_name and str(obj_name).lower() not in ("", "null") else ""
 
         await reply_msg.reply_text(
             f"{'Амирхон ака, напоминание установлено ✅' if ok else 'Амирхон ака, не удалось установить напоминание ⚠️'}\n\n"
             f"📅 {date_display}{obj_part}\n"
-            f"📝 {message_text}",
+            f"📝 {message_text}\n"
+            f"🔁 {rec_label}",
             reply_markup=module_menu_keyboard(),
         )
 
