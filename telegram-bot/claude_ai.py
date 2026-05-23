@@ -32,10 +32,24 @@ def _build_system_prompt(
 ) -> str:
     now = _now()
     today_str = now.strftime("%d.%m.%Y")
-    tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     today_iso = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M")
     month_ru = ["январь","февраль","март","апрель","май","июнь",
                 "июль","август","сентябрь","октябрь","ноябрь","декабрь"][now.month - 1]
+
+    weekday_ru = ["понедельник","вторник","среда","четверг","пятница","суббота","воскресенье"][now.weekday()]
+    weekday_abbr = ["пн","вт","ср","чт","пт","сб","вс"]
+
+    # Pre-compute next 7 days so Claude can resolve "в пятницу", "в среду" etc.
+    next_days_lines = []
+    for delta in range(0, 8):
+        d = now + timedelta(days=delta)
+        label = {0: "сегодня", 1: "завтра"}.get(delta, f"через {delta} дн.")
+        wd = weekday_abbr[d.weekday()]
+        next_days_lines.append(f"  {d.strftime('%Y-%m-%d')} ({wd}) = {label}")
+    next_days_text = "\n".join(next_days_lines)
+
+    tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
 
     obj_lines = []
     for o in objects:
@@ -67,7 +81,12 @@ def _build_system_prompt(
         )
     payments_text = "\n".join(pay_lines) or "  (платежей за этот месяц нет)"
 
-    return f"""Ты — финансовый ассистент Амирхона аки. Сегодня {today_str} ({month_ru} {now.year}). Часовой пояс: Asia/Tashkent (UTC+5).
+    return f"""Ты — финансовый ассистент и личный секретарь Амирхона аки.
+Сегодня {today_str} ({weekday_ru}), текущее время {time_str}. Месяц: {month_ru} {now.year}. Часовой пояс: Asia/Tashkent (UTC+5).
+
+━━ КАЛЕНДАРЬ НА БЛИЖАЙШИЕ 8 ДНЕЙ ━━
+{next_days_text}
+(Используй эту таблицу, чтобы переводить «завтра», «в пятницу», «послезавтра» в точную дату YYYY-MM-DD)
 
 ━━ ДАННЫЕ ПОЛЬЗОВАТЕЛЯ ━━
 
@@ -115,7 +134,13 @@ def _build_system_prompt(
 {{"action":"show_summary"}}
 
 10. Установить напоминание (datetime в Asia/Tashkent):
-{{"action":"set_reminder","text":"Оплата аренды офиса","datetime":"{today_iso} 09:00","object":"Офис или null"}}
+{{"action":"set_reminder","text":"Оплата аренды офиса","datetime":"{today_iso} 09:00","object":"Офис или null","recurring":"none"}}
+
+    Поле recurring:
+    • "none"    — разовое (по умолчанию)
+    • "daily"   — каждый день в указанное время
+    • "weekly"  — каждую неделю в тот же день недели
+    • "monthly" — каждый месяц в то же число
 
 11. Ответить на вопрос / просто поговорить / если непонятно что хочет:
 {{"action":"reply","text":"Амирхон ака, [твой ответ]"}}
@@ -137,8 +162,15 @@ def _build_system_prompt(
 
 НАПОМИНАНИЯ → всегда set_reminder:
 • «напомни», «поставь напоминание», «не забыть» → set_reminder
-• datetime всегда в формате "YYYY-MM-DD HH:MM"
-• Завтра = {tomorrow_str}, сегодня = {today_iso}
+• datetime всегда в формате "YYYY-MM-DD HH:MM" (по таблице выше)
+• Сегодня = {today_iso}, сейчас = {time_str}, завтра = {tomorrow_str}
+• «через 5 минут» → прибавь 5 минут к {time_str}
+• «через 2 часа» → прибавь 2 часа к {time_str}
+• «в пятницу» / «в среду» → найди дату в таблице выше
+• «каждый день» → recurring="daily"
+• «каждый понедельник» / «каждую неделю» → recurring="weekly", datetime = ближайший понедельник
+• «каждый месяц» / «ежемесячно» → recurring="monthly"
+• Если время не указано, используй 09:00
 
 ВСЁ ОСТАЛЬНОЕ → reply:
 • Вопросы, советы, аналитика, разговор, непонятные сообщения
@@ -146,7 +178,11 @@ def _build_system_prompt(
 ━━ ПРИМЕРЫ ━━
 «Офис заплатил 300 баксов» → {{"action":"record_payment","object":"Офис","amount":300,"currency":"USD"}}
 «Расход 50 на ремонт» → {{"action":"record_expense","object":null,"amount":50,"category":"ремонт"}}
-«Напомни завтра в 10:00 про оплату» → {{"action":"set_reminder","text":"Оплата аренды","datetime":"{tomorrow_str} 10:00","object":null}}
+«Напомни завтра в 10:00 про оплату» → {{"action":"set_reminder","text":"Оплата аренды","datetime":"{tomorrow_str} 10:00","object":null,"recurring":"none"}}
+«Через 2 часа напомни позвонить маме» → {{"action":"set_reminder","text":"Позвонить маме","datetime":"[{today_iso} текущее_время + 2 часа]","object":null,"recurring":"none"}}
+«Каждый понедельник в 9 — планёрка» → {{"action":"set_reminder","text":"Планёрка","datetime":"[ближайший понедельник] 09:00","object":null,"recurring":"weekly"}}
+«Каждый день в 8 утра напоминай пить воду» → {{"action":"set_reminder","text":"Пить воду","datetime":"{today_iso} 08:00","object":null,"recurring":"daily"}}
+«В пятницу в 15:00 оплатить налоги» → {{"action":"set_reminder","text":"Оплатить налоги","datetime":"[дата пятницы из таблицы] 15:00","object":null,"recurring":"none"}}
 «Как дела?» → {{"action":"reply","text":"Амирхон ака, всё хорошо! Чем могу помочь?"}}
 «Отчёт за май» → {{"action":"show_report","period":"may_{now.year}","module":"rent"}}
 «Сколько я заработал?» → {{"action":"show_summary"}}
