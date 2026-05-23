@@ -464,6 +464,40 @@ async def report_year_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+async def debug_sheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Diagnostic command — shows exact Sheets connection error."""
+    lines = ["🔍 *Диагностика Google Sheets*\n"]
+
+    # Check env vars
+    creds = config.GOOGLE_CREDS_DICT
+    sid = config.SPREADSHEET_ID
+    lines.append(f"• GOOGLE\\_CREDS\\_JSON: {'✅ задан (' + str(len(creds)) + ' полей)' if creds else '❌ пустой или невалидный JSON'}")
+    lines.append(f"• SPREADSHEET\\_ID: {'✅ ' + sid[:10] + '...' if sid else '❌ не задан'}")
+    lines.append(f"• client\\_email: `{creds.get('client_email', '❌ нет')}`")
+    lines.append(f"• type: `{creds.get('type', '❌ нет')}`\n")
+
+    # Try connection
+    try:
+        import gspread as _gs
+        gc = _gs.service_account_from_dict(creds)
+        lines.append("• Аутентификация: ✅")
+        try:
+            ss = gc.open_by_key(sid)
+            lines.append(f"• Открытие таблицы: ✅ ({ss.title})")
+            try:
+                ws = ss.worksheet("Objects")
+                rows = ws.get_all_records()
+                lines.append(f"• Чтение Objects: ✅ ({len(rows)} строк)")
+            except Exception as e:
+                lines.append(f"• Чтение Objects: ❌ {type(e).__name__}: {e}")
+        except Exception as e:
+            lines.append(f"• Открытие таблицы: ❌ {type(e).__name__}: {e}")
+    except Exception as e:
+        lines.append(f"• Аутентификация: ❌ {type(e).__name__}: {e}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 async def post_init(application: Application) -> None:
     bot = application.bot
     try:
@@ -519,6 +553,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("set_reminder",  set_reminder_command))
     app.add_handler(CommandHandler("reminders",     set_reminder_command))
     app.add_handler(CommandHandler("tenants",       tenants_command))
+    app.add_handler(CommandHandler("debug_sheets",  debug_sheets_command))
 
     app.add_handler(MessageHandler(
         filters.Regex(r"^/confirm_\d+"),
