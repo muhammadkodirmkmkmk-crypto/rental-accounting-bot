@@ -147,7 +147,8 @@ async def add_client_text_handler(update: Update, context: ContextTypes.DEFAULT_
         clear_state(user_id)
         sym = settings.get("symbol", "$")
         await update.message.reply_text(
-            f"{'✅' if ok else '⚠️'} *{data['name']}* {'добавлен!' if ok else 'сохранён локально.'}\n\n"
+            f"{'Амирхон ака, клиент добавлен! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
+            f"🎯 *{data['name']}*\n"
             f"💰 {sym}{data['monthly_fee']}/мес., день оплаты: {day}",
             parse_mode="Markdown",
             reply_markup=targeting_menu_keyboard(),
@@ -249,7 +250,7 @@ async def _save_tpayment(msg, user_id: int, data: dict) -> None:
     clear_state(user_id)
     sym = data.get("symbol", "$")
     await msg.reply_text(
-        f"{'✅ Записан!' if ok else '⚠️ Сохранено локально.'}\n\n"
+        f"{'Амирхон ака, платёж записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
         f"🎯 {data.get('client_name')}: {sym}{received:.2f}\n"
         f"📅 {row_data['date']}",
         reply_markup=targeting_menu_keyboard(),
@@ -310,7 +311,7 @@ async def tgt_exp_amount_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     clear_state(user_id)
     sym = data.get("symbol", "$")
     await update.message.reply_text(
-        f"{'✅ Расход записан!' if ok else '⚠️ Сохранено локально.'}\n\n"
+        f"{'Амирхон ака, расход записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
         f"📂 {data.get('category')}: {sym}{amount:.2f}\n"
         f"📅 {row_data['date']}",
         reply_markup=targeting_menu_keyboard(),
@@ -344,7 +345,8 @@ async def tgt_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                   "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"][today.month - 1]
 
     text = (
-        f"🎯 *Отчёт Таргет — {month_name} {today.year}*\n"
+        f"Амирхон ака, отчёт по таргету готов 📊\n\n"
+        f"🎯 *{month_name} {today.year}*\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"💰 Поступило: {sym}{income:.2f} (ожид. {sym}{expected:.2f})\n"
         f"🔧 Расходы: {sym}{total_exp:.2f}\n"
