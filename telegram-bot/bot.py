@@ -1,5 +1,5 @@
 """
-Бот учёта аренды недвижимости
+Бот учёта: аренда, таргет-проекты, личные расходы
 """
 
 import asyncio
@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 import config
-from database import init_db
+from database import init_db, get_state, clear_state, set_state
 from sheets import init_sheets
 from scheduler import start_scheduler
 
@@ -26,7 +26,11 @@ from handlers.start import (
     restart_command,
     setup_callback,
     setup_text_handler,
+    module_menu_keyboard,
     main_menu_keyboard,
+    targeting_menu_keyboard,
+    personal_menu_keyboard,
+    MODULE_MENU_KEYBOARD,
 )
 from handlers.objects import (
     add_object_command,
@@ -34,6 +38,8 @@ from handlers.objects import (
     object_detail_callback,
     add_object_text_handler,
     obj_no_end_date_callback,
+    obj_discount_yes_callback,
+    obj_discount_no_callback,
 )
 from handlers.payments import (
     record_payment_command,
@@ -63,6 +69,33 @@ from handlers.tenants import tenants_command, tenant_detail_callback
 from handlers.reminders import set_reminder_command, set_timezone_callback
 from handlers.text import free_text_handler
 from handlers.voice import voice_message_handler
+from handlers.targeting import (
+    targeting_menu_command,
+    add_client_command,
+    clients_command,
+    tgt_client_detail_callback,
+    add_client_text_handler,
+    record_tpayment_command,
+    tgt_pay_callback,
+    tgt_pay_full_callback,
+    tgt_pay_amount_text,
+    record_texpense_command,
+    tgt_exp_cat_callback,
+    tgt_exp_amount_text,
+    tgt_report_command,
+)
+from handlers.personal import (
+    personal_menu_command,
+    add_income_command,
+    add_personal_expense_command,
+    prs_inc_cat_callback,
+    prs_exp_cat_callback,
+    prs_income_amount_text,
+    prs_expense_amount_text,
+    prs_income_desc_text,
+    prs_desc_skip_callback,
+    personal_report_command,
+)
 
 
 def setup_logging() -> None:
@@ -82,12 +115,28 @@ def setup_logging() -> None:
     root.addHandler(fh)
 
 
+async def delete_command(update, context) -> None:
+    user_id = update.effective_user.id
+    clear_state(user_id)
+    set_state(user_id, "confirm_delete", {})
+    await update.message.reply_text(
+        "⚠️ *Вы уверены?*\n\n"
+        "Это действие удалит *ВСЕ данные* из Google Sheets:\n"
+        "• Все объекты аренды\n"
+        "• Все платежи\n"
+        "• Все расходы\n"
+        "• Клиентов таргета\n"
+        "• Личные финансы\n\n"
+        "Напишите *ДА* для подтверждения или любой другой текст для отмены.",
+        parse_mode="Markdown",
+    )
+
+
 async def main_text_dispatcher(update: Update, context) -> None:
-    from database import get_state
     user_id = update.effective_user.id
     state, _ = get_state(user_id)
 
-    if state in ("setup_timezone_custom",):
+    if state == "setup_timezone_custom":
         await setup_text_handler(update, context)
     elif state and state.startswith("add_object_"):
         await add_object_text_handler(update, context)
@@ -99,6 +148,20 @@ async def main_text_dispatcher(update: Update, context) -> None:
         await expense_amount_text(update, context)
     elif state == "record_expense_description":
         await expense_description_text(update, context)
+    # Targeting states
+    elif state and state.startswith("tgt_add_client_"):
+        await add_client_text_handler(update, context)
+    elif state == "tgt_pay_amount":
+        await tgt_pay_amount_text(update, context)
+    elif state == "tgt_exp_amount":
+        await tgt_exp_amount_text(update, context)
+    # Personal states
+    elif state == "prs_income_amount":
+        await prs_income_amount_text(update, context)
+    elif state == "prs_expense_amount":
+        await prs_expense_amount_text(update, context)
+    elif state in ("prs_income_desc", "prs_expense_desc"):
+        await prs_income_desc_text(update, context)
     else:
         await free_text_handler(update, context)
 
@@ -107,6 +170,40 @@ async def main_callback_dispatcher(update: Update, context) -> None:
     query = update.callback_query
     data = query.data
 
+    # ── Module routing ────────────────────────────────────────
+    if data == "module_main":
+        await query.answer()
+        await query.edit_message_text("Выберите раздел:", reply_markup=MODULE_MENU_KEYBOARD)
+        return
+
+    if data == "module_rental":
+        await query.answer()
+        await query.edit_message_text(
+            "🏠 *Аренда квартир*\n\nЧто хотите сделать?",
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
+    if data == "module_targeting":
+        await query.answer()
+        await query.edit_message_text(
+            "🎯 *Таргет проекты*\n\nВыберите действие:",
+            parse_mode="Markdown",
+            reply_markup=targeting_menu_keyboard(),
+        )
+        return
+
+    if data == "module_personal":
+        await query.answer()
+        await query.edit_message_text(
+            "💰 *Личные финансы*\n\nВыберите действие:",
+            parse_mode="Markdown",
+            reply_markup=personal_menu_keyboard(),
+        )
+        return
+
+    # ── Rental menu ───────────────────────────────────────────
     if data.startswith("menu_"):
         action = data.replace("menu_", "")
         if action == "objects":
@@ -128,37 +225,90 @@ async def main_callback_dispatcher(update: Update, context) -> None:
         elif action == "main":
             await query.answer()
             await query.edit_message_text(
-                "Что хотите сделать?",
+                "🏠 *Аренда квартир*\n\nЧто хотите сделать?",
+                parse_mode="Markdown",
                 reply_markup=main_menu_keyboard(),
             )
-    elif data.startswith("tz_") and not data.startswith("tz_set_"):
+        return
+
+    # ── Setup ─────────────────────────────────────────────────
+    if (data.startswith("tz_") and not data.startswith("tz_set_")) or \
+       data.startswith("cur_") or data in ("setup_add_object", "setup_skip"):
         await setup_callback(update, context)
-    elif data.startswith("cur_"):
-        await setup_callback(update, context)
-    elif data in ("setup_add_object", "setup_skip"):
-        await setup_callback(update, context)
-    elif data.startswith("obj_detail_"):
+        return
+
+    # ── Object callbacks ──────────────────────────────────────
+    if data.startswith("obj_detail_"):
         await object_detail_callback(update, context)
     elif data == "obj_no_end_date":
         await obj_no_end_date_callback(update, context)
+    elif data == "obj_discount_yes":
+        await obj_discount_yes_callback(update, context)
+    elif data == "obj_discount_no":
+        await obj_discount_no_callback(update, context)
+
+    # ── Payment callbacks ─────────────────────────────────────
     elif data.startswith("pay_obj_"):
         await payment_obj_callback(update, context)
     elif data.startswith("pay_full_"):
         await payment_full_callback(update, context)
     elif data == "pay_note_skip":
         await payment_note_skip_callback(update, context)
+
+    # ── Expense callbacks ─────────────────────────────────────
     elif data.startswith("exp_obj_"):
         await expense_obj_callback(update, context)
     elif data.startswith("exp_cat_"):
         await expense_category_callback(update, context)
     elif data == "exp_desc_skip":
         await expense_desc_skip_callback(update, context)
+
+    # ── Reports ───────────────────────────────────────────────
     elif data.startswith("csv_"):
         await csv_export_callback(update, context)
+    elif data.startswith("report_"):
+        await report_nav_callback(update, context)
+
+    # ── Tenants / Reminders ───────────────────────────────────
     elif data.startswith("tenant_detail_"):
         await tenant_detail_callback(update, context)
     elif data.startswith("tz_set_"):
         await set_timezone_callback(update, context)
+
+    # ── Targeting callbacks ───────────────────────────────────
+    elif data == "tgt_clients":
+        await clients_command(update, context)
+    elif data == "tgt_add_client":
+        await add_client_command(update, context)
+    elif data == "tgt_record_payment":
+        await record_tpayment_command(update, context)
+    elif data == "tgt_record_expense":
+        await record_texpense_command(update, context)
+    elif data == "tgt_report":
+        await tgt_report_command(update, context)
+    elif data.startswith("tgt_client_"):
+        await tgt_client_detail_callback(update, context)
+    elif data.startswith("tgt_pay_full_"):
+        await tgt_pay_full_callback(update, context)
+    elif data.startswith("tgt_pay_"):
+        await tgt_pay_callback(update, context)
+    elif data.startswith("tgt_exp_cat_"):
+        await tgt_exp_cat_callback(update, context)
+
+    # ── Personal callbacks ────────────────────────────────────
+    elif data == "prs_add_income":
+        await add_income_command(update, context)
+    elif data == "prs_add_expense":
+        await add_personal_expense_command(update, context)
+    elif data == "prs_report":
+        await personal_report_command(update, context)
+    elif data.startswith("prs_inc_cat_"):
+        await prs_inc_cat_callback(update, context)
+    elif data.startswith("prs_exp_cat_"):
+        await prs_exp_cat_callback(update, context)
+    elif data == "prs_desc_skip":
+        await prs_desc_skip_callback(update, context)
+
     else:
         await query.answer("Неизвестное действие")
 
@@ -197,6 +347,7 @@ def build_application() -> Application:
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("restart", restart_command))
+    app.add_handler(CommandHandler("delete", delete_command))
     app.add_handler(CommandHandler("add_object", add_object_command))
     app.add_handler(CommandHandler("objects", objects_command))
     app.add_handler(CommandHandler("record_payment", record_payment_command))
