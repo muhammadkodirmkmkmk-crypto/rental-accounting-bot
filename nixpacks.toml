@@ -1,6 +1,4 @@
-[providers]
-# Use nixpacks' built-in Python provider so pip is available on PATH
-python = "3.11"
+providers = ["python"]
 
 [phases.setup]
 nixPkgs = ["ffmpeg"]
