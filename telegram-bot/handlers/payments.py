@@ -157,7 +157,7 @@ async def payment_note_skip_callback(update: Update, context: ContextTypes.DEFAU
     user_id = query.from_user.id
     _, data = get_state(user_id)
     data["note"] = ""
-    await _save_payment(query.message, user_id, data, edit=False)
+    await _save_payment(query.message, user_id, data, edit=True)
 
 
 async def payment_note_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -170,8 +170,9 @@ async def payment_note_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def _save_payment(msg, user_id: int, data: dict, edit: bool = False) -> None:
+    import asyncio
     data["date"] = date.today().strftime("%d.%m.%Y")
-    ok = sheets.record_payment(data)
+    ok = await asyncio.to_thread(sheets.record_payment, data)
     clear_state(user_id)
     sym = data.get("symbol", "$")
     status_text = "Амирхон ака, платёж записан! ✅" if ok else "Амирхон ака, сохранено локально ⚠️"
