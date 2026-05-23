@@ -17,11 +17,13 @@ def init_db() -> None:
     with get_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS user_settings (
-                user_id     INTEGER PRIMARY KEY,
-                timezone    TEXT    NOT NULL DEFAULT 'UTC',
-                currency    TEXT    NOT NULL DEFAULT 'USD',
-                symbol      TEXT    NOT NULL DEFAULT '$',
-                setup_done  INTEGER NOT NULL DEFAULT 0
+                user_id                 INTEGER PRIMARY KEY,
+                timezone                TEXT    NOT NULL DEFAULT 'Asia/Tashkent',
+                currency                TEXT    NOT NULL DEFAULT 'USD',
+                symbol                  TEXT    NOT NULL DEFAULT '$',
+                setup_done              INTEGER NOT NULL DEFAULT 0,
+                reminder_hour           INTEGER NOT NULL DEFAULT 9,
+                reminder_day_before_hour INTEGER NOT NULL DEFAULT 9
             );
 
             CREATE TABLE IF NOT EXISTS conversation_state (
@@ -38,6 +40,18 @@ def init_db() -> None:
                 retries     INTEGER NOT NULL DEFAULT 0
             );
         """)
+    # Migrate: add columns for reminder hours if upgrading from older schema
+    with get_conn() as conn:
+        for col, default in [
+            ("reminder_hour", "9"),
+            ("reminder_day_before_hour", "9"),
+        ]:
+            try:
+                conn.execute(
+                    f"ALTER TABLE user_settings ADD COLUMN {col} INTEGER NOT NULL DEFAULT {default}"
+                )
+            except Exception:
+                pass  # column already exists
     logger.info("Database initialised at %s", DB_PATH)
 
 
