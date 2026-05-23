@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import date
@@ -30,7 +31,6 @@ async def free_text_handler(
     if state == "confirm_delete":
         if msg_text.upper() in ("ДА", "DA", "YES"):
             await update.message.reply_text("Амирхон ака, удаляю все данные... 🗑")
-            import asyncio
             ok = await asyncio.to_thread(sheets.clear_all_data)
             clear_state(user_id)
             save_user_settings(user_id, setup_done=0)
@@ -66,7 +66,8 @@ async def free_text_handler(
         return
 
     # ── NLP free text ─────────────────────────────────────────
-    known_objects = [o.get("name", "") for o in sheets.get_objects()]
+    objects = await asyncio.to_thread(sheets.get_objects)
+    known_objects = [o.get("name", "") for o in objects]
     parsed = nlp.parse_free_text(msg_text, known_objects)
 
     if not parsed:
@@ -97,7 +98,6 @@ async def free_text_handler(
             )
             return
 
-        objects = sheets.get_objects()
         obj = next(
             (o for o in objects if obj_name.lower() in o.get("name", "").lower()),
             None,
@@ -117,7 +117,7 @@ async def free_text_handler(
             "note": "Записано через текст/голос",
             "date": date.today().strftime("%d.%m.%Y"),
         }
-        ok = sheets.record_payment(data)
+        ok = await asyncio.to_thread(sheets.record_payment, data)
         diff = amount - float(obj.get("rent_amount", 0))
         diff_text = f"\n⚠️ Недоплата: {sym}{abs(diff):.2f}" if diff < 0 else ""
         await reply_msg.reply_text(
@@ -139,7 +139,6 @@ async def free_text_handler(
             )
             return
 
-        objects = sheets.get_objects()
         obj = None
         if obj_name:
             obj = next(
@@ -155,7 +154,7 @@ async def free_text_handler(
             "description": "Записано через текст/голос",
             "date": date.today().strftime("%d.%m.%Y"),
         }
-        ok = sheets.record_expense(data)
+        ok = await asyncio.to_thread(sheets.record_expense, data)
         await reply_msg.reply_text(
             f"{'Амирхон ака, расход записан! ✅' if ok else 'Амирхон ака, сохранено локально ⚠️'}\n\n"
             f"📂 {category}: {sym}{amount:.2f}\n"
@@ -167,7 +166,7 @@ async def free_text_handler(
     elif intent == "report":
         month = parsed.get("month")
         year = parsed.get("year")
-        report = analytics.build_monthly_report(year, month, sym)
+        report = await asyncio.to_thread(analytics.build_monthly_report, year, month, sym)
         await reply_msg.reply_text(report, reply_markup=main_menu_keyboard())
 
     else:
