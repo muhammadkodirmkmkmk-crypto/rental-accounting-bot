@@ -33,38 +33,50 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def _send_report(update: Update, year: int, month: int) -> None:
-    msg = update.message
-    if update.callback_query:
+    import asyncio
+    is_callback = bool(update.callback_query)
+    if is_callback:
         await update.callback_query.answer()
         msg = update.callback_query.message
+    else:
+        msg = update.message
 
     settings = get_user_settings(update.effective_user.id)
     sym = settings.get("symbol", "$")
 
-    report_text = analytics.build_monthly_report(year, month, sym)
+    report_text = await asyncio.to_thread(analytics.build_monthly_report, year, month, sym)
 
     month_label = f"{MONTH_NAMES_RU.get(month, str(month))} {year}"
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"📥 Экспорт CSV — {month_label}", callback_data=f"csv_{year}_{month}")],
-        [InlineKeyboardButton("◀ Главное меню", callback_data="menu_main")],
+        [InlineKeyboardButton("◀ Меню аренды", callback_data="menu_main")],
     ])
-    await msg.reply_text(report_text, reply_markup=keyboard)
+    if is_callback:
+        try:
+            await msg.edit_text(report_text, reply_markup=keyboard)
+        except Exception:
+            await msg.reply_text(report_text, reply_markup=keyboard)
+    else:
+        await msg.reply_text(report_text, reply_markup=keyboard)
 
 
 async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    msg = update.message
-    if update.callback_query:
+    import asyncio
+    is_callback = bool(update.callback_query)
+    if is_callback:
         await update.callback_query.answer()
         msg = update.callback_query.message
+    else:
+        msg = update.message
 
     now = datetime.now()
     year, month = now.year, now.month
     settings = get_user_settings(update.effective_user.id)
     sym = settings.get("symbol", "$")
 
-    payments = sheets.get_payments_for_month(year, month)
-    expenses = sheets.get_expenses_for_month(year, month)
-    objects = sheets.get_objects()
+    payments = await asyncio.to_thread(sheets.get_payments_for_month, year, month)
+    expenses = await asyncio.to_thread(sheets.get_expenses_for_month, year, month)
+    objects = await asyncio.to_thread(sheets.get_objects)
 
     total_income = sum(float(p.get("received_amount", 0)) for p in payments)
     total_expected = sum(float(o.get("rent_amount", 0)) for o in objects if o.get("status") == "rented")
@@ -102,7 +114,13 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     text += f"\n🔗 [Открыть таблицу]({sheets.spreadsheet_url()})"
 
-    await msg.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard())
+    if is_callback:
+        try:
+            await msg.edit_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard())
+        except Exception:
+            await msg.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard())
+    else:
+        await msg.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
 
 async def csv_export_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
