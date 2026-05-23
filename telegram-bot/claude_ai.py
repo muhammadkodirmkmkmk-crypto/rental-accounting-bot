@@ -107,6 +107,9 @@ def _build_system_prompt(
 Список арендаторов:
 {{"action":"list_tenants"}}
 
+Установить напоминание (дата в формате YYYY-MM-DD, время HH:MM в Asia/Tashkent):
+{{"action":"set_reminder","object_name":"Офис или null","date":"{now.strftime('%Y-%m-%d')}","time":"09:00","message":"Оплата аренды"}}
+
 ━━ ПРИМЕРЫ РАСПОЗНАВАНИЯ ━━
 "Квартира Чиланзар заплатила 300 баксов" → {{"action":"record_payment","object_name":"Квартира Чиланзар","amount":300}}
 "Покажи сколько заработал в мае" → {{"action":"get_report","month":5,"year":{now.year}}}
@@ -114,6 +117,13 @@ def _build_system_prompt(
 "Как дела с платежами?" → аналитический ответ текстом (смотри данные выше и дай оценку)
 "Сводка" → {{"action":"get_summary"}}
 "Покажи арендаторов" → {{"action":"list_tenants"}}
+"Напомни завтра в 10:00 про оплату офиса" → {{"action":"set_reminder","object_name":"офис","date":"{(datetime.now(_TZ).date() + __import__('datetime').timedelta(days=1)).strftime('%Y-%m-%d')}","time":"10:00","message":"Оплата аренды офиса"}}
+"Поставь напоминание на 25 мая в 13:30" → {{"action":"set_reminder","object_name":null,"date":"{now.year}-05-25","time":"13:30","message":"Напоминание"}}
+
+━━ ВАЖНО ПРО НАПОМИНАНИЯ ━━
+Бот УМЕЕТ устанавливать напоминания через APScheduler. Когда пользователь просит напомнить —
+ВСЕГДА возвращай JSON с action="set_reminder". Никогда не говори что не можешь установить напоминание.
+Если дата/время не указаны явно — уточни у пользователя.
 """
 
 
