@@ -4,6 +4,7 @@ import logging
 import pytz
 
 import sheets
+from utils import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def payment_reliability(object_id: str) -> dict:
     total = len(obj_payments)
     paid_on_time = sum(
         1 for p in obj_payments if p.get("status") in ("paid", "partial")
-        and float(p.get("received_amount", 0)) >= float(p.get("expected_amount", 0)) * 0.95
+        and safe_float(p.get("received_amount")) >= safe_float(p.get("expected_amount")) * 0.95
     )
     on_time_pct = round(paid_on_time / total * 100, 1) if total else 0
 
@@ -86,7 +87,7 @@ def monthly_income_comparison(year: int, month: int) -> dict:
 
 def _month_income(year: int, month: int) -> float:
     payments = sheets.get_payments_for_month(year, month)
-    return sum(float(p.get("received_amount", 0)) for p in payments)
+    return sum(safe_float(p.get("received_amount")) for p in payments)
 
 
 def occupancy_rate() -> dict:
@@ -177,15 +178,15 @@ def build_monthly_report(year: int, month: int, symbol: str = "$") -> str:
 
     total_received = 0.0
     total_expected = 0.0
-    total_expenses = sum(float(e.get("amount", 0)) for e in expenses)
+    total_expenses = sum(safe_float(e.get("amount")) for e in expenses)
 
     for obj in objects:
         obj_id = str(obj.get("id", ""))
         obj_payments = [p for p in payments if str(p.get("object_id")) == obj_id]
         if obj_payments:
             p = obj_payments[-1]
-            received = float(p.get("received_amount", 0))
-            expected = float(p.get("expected_amount", 0))
+            received = safe_float(p.get("received_amount"))
+            expected = safe_float(p.get("expected_amount"))
             diff = received - expected
             total_received += received
             total_expected += expected
@@ -200,7 +201,7 @@ def build_monthly_report(year: int, month: int, symbol: str = "$") -> str:
                     f"🏠 {obj.get('name')} (Арендатор: {tenant}): {symbol}{received:.0f} ✅"
                 )
         else:
-            expected = float(obj.get("rent_amount", 0))
+            expected = safe_float(obj.get("rent_amount"))
             total_expected += expected
             if obj.get("status", "").lower() == "rented":
                 lines.append(f"🏠 {obj.get('name')}: ❌ НЕ ОПЛАЧЕНО")
