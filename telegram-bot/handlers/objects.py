@@ -165,18 +165,15 @@ async def add_object_text_handler(update: Update, context: ContextTypes.DEFAULT_
 
     if field_key == "rent_amount":
         try:
-            _parse_amount(value)
+            parsed_rent = _parse_amount(value)
         except ValueError:
             await update.message.reply_text("Введите сумму цифрами, например: 350 или 350.50")
             return
-
-    data[field_key] = value
-
-    # After rent_amount: ask about discount period
-    if field_key == "rent_amount":
+        # Store as normalised numeric string so float() always works downstream
+        data[field_key] = str(parsed_rent)
         set_state(user_id, "add_object_discount_q", data)
         await update.message.reply_text(
-            f"💰 Стандартная аренда: *{value}*\n\n"
+            f"💰 Стандартная аренда: *{parsed_rent}*\n\n"
             "💡 Хотите установить скидочный период?\n"
             "_Например, первые 3 месяца по $250, потом стандартные $350_",
             parse_mode="Markdown",
@@ -188,6 +185,9 @@ async def add_object_text_handler(update: Update, context: ContextTypes.DEFAULT_
             ]),
         )
         return
+
+    # Store value for all non-rent_amount fields (rent_amount is handled and returns above)
+    data[field_key] = value
 
     if idx + 1 < len(OBJECT_FIELDS):
         next_state, next_prompt = OBJECT_FIELDS[idx + 1]
