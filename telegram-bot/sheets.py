@@ -109,7 +109,7 @@ def get_all_records(sheet_name: str) -> list[dict]:
     for attempt in range(3):
         try:
             ws = _get_or_create_sheet(sheet_name)
-            result = ws.get_all_records()
+            result = ws.get_all_records(expected_headers=[], numericise_ignore=["all"])
             _last_read_error[sheet_name] = False
             return result
         except Exception as e:
