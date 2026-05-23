@@ -3,12 +3,13 @@ import logging
 import re
 from datetime import datetime
 import pytz
-from telegram import Update
+from telegram import Bot, Update
 from telegram.ext import ContextTypes
 
 import sheets
 import analytics
 import claude_ai
+import scheduler as sched
 from database import get_state, get_user_settings, clear_state, save_user_settings
 from handlers.start import main_menu_keyboard, module_menu_keyboard
 
@@ -38,6 +39,8 @@ async def _handle_action(
     objects: list[dict],
     reply_msg,
     settings: dict,
+    bot: Bot,
+    user_id: int,
 ) -> None:
     """Execute a structured action returned by Claude."""
     action = action_data.get("action")
@@ -45,6 +48,7 @@ async def _handle_action(
     today_str = datetime.now(_TZ).strftime("%d.%m.%Y")
     today = datetime.now(_TZ)
 
+    # ── Record rental payment ──────────────────────────────────
     if action == "record_payment":
         obj_name = str(action_data.get("object_name") or "")
         amount = action_data.get("amount")
@@ -94,6 +98,7 @@ async def _handle_action(
             reply_markup=main_menu_keyboard(),
         )
 
+    # ── Record expense ─────────────────────────────────────────
     elif action == "record_expense":
         obj_name = action_data.get("object_name")
         amount = action_data.get("amount")
@@ -131,12 +136,14 @@ async def _handle_action(
             reply_markup=main_menu_keyboard(),
         )
 
+    # ── Monthly report ─────────────────────────────────────────
     elif action == "get_report":
         month = int(action_data.get("month", today.month))
         year = int(action_data.get("year", today.year))
         report = await asyncio.to_thread(analytics.build_monthly_report, year, month, sym)
         await reply_msg.reply_text(report, reply_markup=main_menu_keyboard())
 
+    # ── Summary ────────────────────────────────────────────────
     elif action == "get_summary":
         report = await asyncio.to_thread(
             analytics.build_monthly_report, today.year, today.month, sym
@@ -146,6 +153,7 @@ async def _handle_action(
             reply_markup=main_menu_keyboard(),
         )
 
+    # ── List objects ───────────────────────────────────────────
     elif action == "list_objects":
         if not objects:
             await reply_msg.reply_text(
@@ -166,6 +174,7 @@ async def _handle_action(
             reply_markup=main_menu_keyboard(),
         )
 
+    # ── List tenants ───────────────────────────────────────────
     elif action == "list_tenants":
         tenants = [o for o in objects if o.get("tenant_name")]
         if not tenants:
@@ -187,6 +196,64 @@ async def _handle_action(
             reply_markup=main_menu_keyboard(),
         )
 
+    # ── Set one-time reminder ──────────────────────────────────
+    elif action == "set_reminder":
+        date_str = str(action_data.get("date", "")).strip()
+        time_str = str(action_data.get("time", "09:00")).strip()
+        message_text = str(action_data.get("message", "Напоминание")).strip()
+        obj_name = action_data.get("object_name")
+
+        if not date_str:
+            await reply_msg.reply_text(
+                "Амирхон ака, уточните дату напоминания (например: 25 мая или 2026-05-25).",
+                reply_markup=module_menu_keyboard(),
+            )
+            return
+
+        # Ensure time has HH:MM format
+        if ":" not in time_str:
+            time_str = "09:00"
+
+        try:
+            run_dt_naive = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+            run_dt = _TZ.localize(run_dt_naive)
+        except ValueError:
+            await reply_msg.reply_text(
+                f"Амирхон ака, не смог разобрать дату «{date_str}» или время «{time_str}».\n"
+                "Уточните, например: «завтра в 10:00» или «25 мая в 14:30».",
+                reply_markup=module_menu_keyboard(),
+            )
+            return
+
+        if run_dt <= today:
+            await reply_msg.reply_text(
+                "Амирхон ака, это время уже прошло. Укажите будущую дату.",
+                reply_markup=module_menu_keyboard(),
+            )
+            return
+
+        prefix = f"🏠 {obj_name}\n" if obj_name and obj_name != "null" else ""
+        full_message = f"⏰ *Напоминание*\n\n{prefix}📝 {message_text}"
+
+        ok = sched.schedule_one_time_reminder(bot, user_id, run_dt, full_message)
+
+        date_display = run_dt.strftime("%d.%m.%Y в %H:%M")
+        if ok:
+            obj_part = f"\n🏠 Объект: {obj_name}" if obj_name and obj_name != "null" else ""
+            await reply_msg.reply_text(
+                f"Амирхон ака, напоминание установлено ✅\n\n"
+                f"📅 {date_display}{obj_part}\n"
+                f"📝 {message_text}",
+                reply_markup=module_menu_keyboard(),
+            )
+        else:
+            await reply_msg.reply_text(
+                "Амирхон ака, не удалось установить напоминание — планировщик не запущен. "
+                "Попробуйте позже.",
+                reply_markup=module_menu_keyboard(),
+            )
+
+    # ── Unknown action ─────────────────────────────────────────
     else:
         await reply_msg.reply_text(
             f"Амирхон ака, не могу выполнить действие «{action}».",
@@ -245,7 +312,7 @@ async def free_text_handler(
     # ── Claude AI ─────────────────────────────────────────────
     settings = get_user_settings(user_id)
 
-    # Show typing while Claude thinks
+    # Show typing while Claude processes
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action="typing"
     )
@@ -264,16 +331,16 @@ async def free_text_handler(
     reply_msg = update.message
 
     if result["type"] == "action":
-        await _handle_action(result, objects, reply_msg, settings)
-
+        await _handle_action(
+            result, objects, reply_msg, settings,
+            bot=context.bot, user_id=user_id,
+        )
     elif result["type"] == "text":
         await reply_msg.reply_text(
             result["content"],
             reply_markup=module_menu_keyboard(),
         )
-
     else:
-        # Error fallback
         await reply_msg.reply_text(
             f"Амирхон ака, {result.get('content', 'произошла ошибка AI')}.\n\n"
             "Используйте меню или команды:",
