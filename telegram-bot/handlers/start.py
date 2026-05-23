@@ -122,7 +122,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         set_state(user_id, "setup_currency", {"timezone": "Asia/Tashkent"})
     else:
         await update.message.reply_text(
-            "Амирхон ака, выберите раздел 👇",
+            "Амирхон ака, ассалому алайкум! 👋\n\nЧем могу помочь?",
             reply_markup=MODULE_MENU_KEYBOARD,
         )
 
@@ -130,7 +130,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def show_module_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     msg = update.message or (update.callback_query.message if update.callback_query else None)
     if msg:
-        await msg.reply_text("Амирхон ака, выберите раздел 👇", reply_markup=MODULE_MENU_KEYBOARD)
+        await msg.reply_text(
+            "Амирхон ака, ассалому алайкум! 👋\n\nЧем могу помочь?",
+            reply_markup=MODULE_MENU_KEYBOARD,
+        )
 
 
 async def setup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
