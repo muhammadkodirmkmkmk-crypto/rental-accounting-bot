@@ -263,6 +263,41 @@ def reschedule_reminders(bot: Bot, hour: int, day_before_hour: int) -> None:
     logger.info("Напоминания перенастроены: основные=%d:00, за день до=%d:00", hour, day_before_hour)
 
 
+def schedule_one_time_reminder(
+    bot: Bot,
+    user_id: int,
+    run_at: "datetime",
+    message_text: str,
+) -> bool:
+    """
+    Schedule a one-time reminder for a specific user at a specific datetime (timezone-aware).
+    Returns True if scheduled successfully, False if scheduler is not running.
+    """
+    global _scheduler
+    if not _scheduler or not _scheduler.running:
+        logger.warning("Scheduler not running — cannot schedule one-time reminder")
+        return False
+
+    job_id = f"reminder_{user_id}_{int(run_at.timestamp())}"
+
+    async def _send(chat_id: int, text: str) -> None:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+        except Exception as e:
+            logger.error("Не удалось отправить разовое напоминание %s: %s", job_id, e)
+
+    _scheduler.add_job(
+        _send,
+        "date",
+        run_date=run_at,
+        args=[user_id, message_text],
+        id=job_id,
+        replace_existing=True,
+    )
+    logger.info("Разовое напоминание запланировано: %s → %s", job_id, run_at.isoformat())
+    return True
+
+
 def stop_scheduler() -> None:
     global _scheduler
     if _scheduler and _scheduler.running:
