@@ -232,7 +232,7 @@ def clean_all_sheets() -> dict[str, int]:
 # ── Objects ───────────────────────────────────────────────────
 
 def get_objects() -> list[dict]:
-    return get_all_records("Objects")
+    return [o for o in get_all_records("Objects") if str(o.get("name", "")).strip()]
 
 
 def get_active_objects() -> list[dict]:
