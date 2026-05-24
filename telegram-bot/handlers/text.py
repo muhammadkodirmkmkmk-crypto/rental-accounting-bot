@@ -310,6 +310,8 @@ async def _dispatch_action(
 
     # ── Show objects ───────────────────────────────────────────
     elif action in ("show_objects", "list_objects"):
+        # Filter out empty/corrupt rows
+        objects = [o for o in objects if o.get("name", "").strip()]
         if not objects:
             msg = "Амирхон ака, объекты не найдены. Добавьте первый объект!"
             await reply_msg.reply_text(msg)
