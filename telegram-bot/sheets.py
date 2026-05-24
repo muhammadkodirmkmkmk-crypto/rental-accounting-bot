@@ -66,10 +66,35 @@ def _get_or_create_sheet(name: str) -> gspread.Worksheet:
     return ws
 
 
+def _sync_headers(ws: gspread.Worksheet, sheet_name: str) -> None:
+    """
+    Ensure the first row of the worksheet exactly matches SHEET_HEADERS.
+    If it differs (e.g. old schema with extra columns), rewrite it in-place.
+    """
+    expected = SHEET_HEADERS.get(sheet_name, [])
+    if not expected:
+        return
+    try:
+        current = ws.row_values(1)
+        if current == expected:
+            return  # already correct
+        logger.warning(
+            "Sheet '%s' header mismatch — current=%s expected=%s — rewriting row 1",
+            sheet_name, current, expected,
+        )
+        # Pad expected with empty strings to cover any extra columns in the old header
+        padded = expected + [""] * max(0, len(current) - len(expected))
+        ws.update("1:1", [padded])
+        logger.info("Sheet '%s': header row updated to %s", sheet_name, expected)
+    except Exception as e:
+        logger.error("Failed to sync headers for '%s': %s", sheet_name, e)
+
+
 def init_sheets() -> None:
     for name in SHEET_HEADERS:
-        _get_or_create_sheet(name)
-    logger.info("All sheets initialised")
+        ws = _get_or_create_sheet(name)
+        _sync_headers(ws, name)
+    logger.info("All sheets initialised and headers verified")
 
 
 def _retry_write(fn, *args, retries: int = 3, delay: float = 2.0) -> Any:
