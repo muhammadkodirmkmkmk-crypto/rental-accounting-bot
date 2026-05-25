@@ -423,6 +423,53 @@ def get_expenses_for_month(year: int, month: int) -> list[dict]:
     return result
 
 
+def delete_object(name: str) -> bool:
+    """Delete an object row from the Objects sheet by name."""
+    try:
+        ws = _get_or_create_sheet("Objects")
+        rows = ws.get_all_values()
+        for i, row in enumerate(rows):
+            if i == 0:
+                continue
+            if len(row) > 1 and row[1].strip().lower() == name.strip().lower():
+                ws.delete_rows(i + 1)
+                logger.info("Deleted object '%s' (row %d)", name, i + 1)
+                return True
+        logger.warning("delete_object: '%s' not found", name)
+        return False
+    except Exception as e:
+        logger.error("delete_object error: %s", e)
+        return False
+
+
+def update_object(name: str, fields: dict) -> bool:
+    """Update specified fields of an object row found by name (case-insensitive)."""
+    header_to_col = {h: i + 1 for i, h in enumerate(SHEET_HEADERS["Objects"])}
+    try:
+        ws = _get_or_create_sheet("Objects")
+        rows = ws.get_all_values()
+        for i, row in enumerate(rows):
+            if i == 0:
+                continue
+            if len(row) > 1 and row[1].strip().lower() == name.strip().lower():
+                row_num = i + 1
+                for field, value in fields.items():
+                    col = header_to_col.get(field)
+                    if col:
+                        ws.update_cell(row_num, col, str(value) if value is not None else "")
+                        logger.info("Updated object '%s' field '%s'='%s'", name, field, value)
+                    # Handle alias: "name" → update column B (index 2)
+                    elif field == "new_name":
+                        ws.update_cell(row_num, 2, str(value))
+                        logger.info("Renamed object '%s' → '%s'", name, value)
+                return True
+        logger.warning("update_object: '%s' not found", name)
+        return False
+    except Exception as e:
+        logger.error("update_object error: %s", e)
+        return False
+
+
 def spreadsheet_url() -> str:
     return f"https://docs.google.com/spreadsheets/d/{config.SPREADSHEET_ID}"
 
