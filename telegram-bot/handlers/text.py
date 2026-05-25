@@ -212,13 +212,19 @@ async def _dispatch_action(
             "address": action_data.get("address", ""),
             "tenant_name": action_data.get("tenant_name", ""),
             "tenant_phone": action_data.get("tenant_phone", ""),
+            "tenant_telegram": action_data.get("tenant_telegram", ""),
             "rent_amount": rent,
             "payment_day": action_data.get("payment_day", 1),
             "lease_start": today_str,
             "status": "rented",
         }
         ok = await asyncio.to_thread(sheets.add_object, data)
-        tenant_line = f"👤 {data['tenant_name']}" + (f" — {data['tenant_phone']}" if data["tenant_phone"] else "")
+        tg = data.get("tenant_telegram", "")
+        tenant_line = (
+            f"👤 {data['tenant_name']}"
+            + (f" — {data['tenant_phone']}" if data["tenant_phone"] else "")
+            + (f" ({tg})" if tg else "")
+        )
         address_line = f"📍 {data['address']}\n" if data["address"] else ""
         msg = (
             f"✅ Амирхон ака, объект сохранён!\n\n"
@@ -318,9 +324,11 @@ async def _dispatch_action(
             return msg
         lines = ["Амирхон ака, ваши объекты 🏠\n"]
         for o in objects:
+            tg = o.get("tenant_telegram", "")
+            tg_part = f" {tg}" if tg else ""
             lines.append(
                 f"🏠 {o.get('name')}\n"
-                f"   👤 {o.get('tenant_name','—')} {o.get('tenant_phone','')}\n"
+                f"   👤 {o.get('tenant_name','—')} {o.get('tenant_phone','')}{tg_part}\n"
                 f"   💰 {sym}{o.get('rent_amount',0)}/мес | {o.get('payment_day','?')} числа"
             )
         msg = "\n\n".join(lines)
