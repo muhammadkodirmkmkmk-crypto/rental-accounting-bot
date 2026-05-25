@@ -115,10 +115,19 @@ def _build_system_prompt(
 3. Добавить объект аренды:
 {{"action":"add_object","name":"Квартира 1","address":"ул. Ленина 5","rent":300,"tenant_name":"Иван","tenant_phone":"+998901234567","tenant_telegram":"@username","payment_day":1}}
 
-4. Добавить клиента таргетинга:
+4. Удалить объект аренды полностью:
+{{"action":"delete_object","object":"Квартира 1"}}
+
+5. Изменить/редактировать объект (название, аренду, арендатора и т.д.):
+{{"action":"update_object","object":"Квартира 1","fields":{{"new_name":"Квартира B","rent_amount":350}}}}
+
+6. Пометить объект как свободный (выехал арендатор):
+{{"action":"mark_object_free","object":"Квартира 1"}}
+
+7. Добавить клиента таргетинга:
 {{"action":"add_client","name":"ИП Иванов","fee":500,"payment_day":10}}
 
-5. Записать платёж от клиента таргетинга:
+8. Записать платёж от клиента таргетинга:
 {{"action":"record_target_payment","client":"ИП Иванов","amount":500}}
 
 6. Показать отчёт за месяц:
