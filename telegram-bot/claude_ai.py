@@ -113,7 +113,7 @@ def _build_system_prompt(
 {{"action":"record_expense","object":"название или null","amount":50,"category":"ремонт|коммунальные|налоги|страховка|управление|реклама|прочее"}}
 
 3. Добавить объект аренды:
-{{"action":"add_object","name":"Квартира 1","address":"ул. Ленина 5","rent":300,"tenant_name":"Иван","tenant_phone":"+998901234567","payment_day":1}}
+{{"action":"add_object","name":"Квартира 1","address":"ул. Ленина 5","rent":300,"tenant_name":"Иван","tenant_phone":"+998901234567","tenant_telegram":"@username","payment_day":1}}
 
 4. Добавить клиента таргетинга:
 {{"action":"add_client","name":"ИП Иванов","fee":500,"payment_day":10}}
@@ -193,7 +193,7 @@ def _build_system_prompt(
   Шаг 3: "Мирзо Улугбек 45" → {{"action":"reply","text":"Сумма аренды в месяц?"}}
   Шаг 4: "300 долларов" → {{"action":"reply","text":"Какого числа платит арендатор?"}}
   Шаг 5: "15 числа" → {{"action":"reply","text":"Имя и телефон арендатора?"}}
-  Шаг 6: "Бахром 998901234567" → {{"action":"add_object","name":"Квартира Юнусабад","address":"Мирзо Улугбек 45","rent":300,"payment_day":15,"tenant_name":"Бахром","tenant_phone":"+998901234567"}}
+  Шаг 6: "Бахром 998901234567 @behruz" → {{"action":"add_object","name":"Квартира Юнусабад","address":"Мирзо Улугбек 45","rent":300,"payment_day":15,"tenant_name":"Бахром","tenant_phone":"+998901234567","tenant_telegram":"@behruz"}}
 
 ━━ ВАЖНО ━━
 - Никогда не возвращай текст вне JSON
