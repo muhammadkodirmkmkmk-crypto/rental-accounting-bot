@@ -16,6 +16,7 @@ SHEET_HEADERS: dict[str, list[str]] = {
     "Objects": [
         "id", "name", "address", "tenant_name", "tenant_phone",
         "rent_amount", "currency", "payment_day", "lease_start", "lease_end", "status",
+        "tenant_telegram",
     ],
     "Payments": [
         "date", "object_id", "object_name", "expected_amount",
@@ -243,7 +244,7 @@ def add_object(data: dict) -> bool:
     objects = get_objects()
     new_id = str(len(objects) + 1)
     # Columns: A=id B=name C=address D=tenant_name E=tenant_phone
-    #          F=rent_amount G=currency H=payment_day I=lease_start J=lease_end K=status
+    #          F=rent_amount G=currency H=payment_day I=lease_start J=lease_end K=status L=tenant_telegram
     row = [
         new_id,
         data.get("name", ""),
@@ -256,6 +257,7 @@ def add_object(data: dict) -> bool:
         data.get("lease_start", ""),
         data.get("lease_end", ""),
         data.get("status", "rented"),
+        data.get("tenant_telegram", ""),
     ]
     return append_row("Objects", row)
 
