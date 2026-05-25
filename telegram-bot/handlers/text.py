@@ -416,6 +416,84 @@ async def _dispatch_action(
         await reply_msg.reply_text(msg)
         return msg
 
+    # ── Delete object ───────────────────────────────────────────
+    elif action == "delete_object":
+        obj_name = str(action_data.get("object") or action_data.get("name") or "")
+        if not obj_name:
+            msg = "Амирхон ака, уточните название объекта для удаления."
+            await reply_msg.reply_text(msg)
+            return msg
+        obj = _find_object(objects, obj_name)
+        if not obj:
+            names = "\n".join(f"• {o.get('name')}" for o in objects) or "(нет объектов)"
+            msg = f"Амирхон ака, объект «{obj_name}» не найден.\n\nДоступные:\n{names}"
+            await reply_msg.reply_text(msg)
+            return msg
+        ok = await asyncio.to_thread(sheets.delete_object, obj.get("name"))
+        msg = (
+            f"✅ Амирхон ака, объект «{obj.get('name')}» удалён из таблицы." if ok
+            else f"⚠️ Не удалось удалить объект «{obj.get('name')}»."
+        )
+        await reply_msg.reply_text(msg)
+        return msg
+
+    # ── Update / edit object ────────────────────────────────────
+    elif action == "update_object":
+        obj_name = str(action_data.get("object") or action_data.get("name") or "")
+        fields = action_data.get("fields") or {}
+        if not obj_name or not fields:
+            msg = "Амирхон ака, уточните объект и что именно нужно изменить."
+            await reply_msg.reply_text(msg)
+            return msg
+        obj = _find_object(objects, obj_name)
+        if not obj:
+            names = "\n".join(f"• {o.get('name')}" for o in objects) or "(нет объектов)"
+            msg = f"Амирхон ака, объект «{obj_name}» не найден.\n\nДоступные:\n{names}"
+            await reply_msg.reply_text(msg)
+            return msg
+        ok = await asyncio.to_thread(sheets.update_object, obj.get("name"), fields)
+        # Build human-readable summary of changes
+        labels = {
+            "new_name": "новое название", "name": "название",
+            "rent_amount": "аренда", "payment_day": "день оплаты",
+            "tenant_name": "арендатор", "tenant_phone": "телефон",
+            "tenant_telegram": "Telegram", "address": "адрес",
+            "status": "статус",
+        }
+        changes = "\n".join(
+            f"  • {labels.get(k, k)}: {v}" for k, v in fields.items()
+        )
+        msg = (
+            f"✅ Амирхон ака, объект «{obj.get('name')}» обновлён!\n{changes}" if ok
+            else f"⚠️ Не удалось обновить объект «{obj.get('name')}»."
+        )
+        await reply_msg.reply_text(msg)
+        return msg
+
+    # ── Mark object as free (vacant) ────────────────────────────
+    elif action == "mark_object_free":
+        obj_name = str(action_data.get("object") or action_data.get("name") or "")
+        obj = _find_object(objects, obj_name) if obj_name else None
+        if not obj:
+            names = "\n".join(f"• {o.get('name')}" for o in objects) or "(нет объектов)"
+            msg = f"Амирхон ака, объект «{obj_name}» не найден.\n\nДоступные:\n{names}"
+            await reply_msg.reply_text(msg)
+            return msg
+        fields = {
+            "status": "free",
+            "tenant_name": "",
+            "tenant_phone": "",
+            "tenant_telegram": "",
+        }
+        ok = await asyncio.to_thread(sheets.update_object, obj.get("name"), fields)
+        msg = (
+            f"✅ Амирхон ака, «{obj.get('name')}» помечен как свободный.\n"
+            f"Арендатор удалён."
+            if ok else f"⚠️ Не удалось обновить статус «{obj.get('name')}»."
+        )
+        await reply_msg.reply_text(msg)
+        return msg
+
     # ── Unknown / fallback ─────────────────────────────────────
     else:
         msg = "Амирхон ака, чем могу помочь?"
