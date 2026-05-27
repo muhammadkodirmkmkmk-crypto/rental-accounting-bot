@@ -28,4 +28,4 @@ DB_PATH: str = "bot_state.db"
 
 WHISPER_MODEL: str = os.environ.get("WHISPER_MODEL", "base")
 
-ALLOWED_USER_IDS: set[int] = {5448612638, 7871931220}
+ALLOWED_USER_IDS: set[int] = {5448612638, 7871931220, 8973180397}
