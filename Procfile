@@ -1,1 +1,1 @@
-worker: python telegram-bot/main.py
+web: gunicorn --chdir telegram-bot --bind 0.0.0.0:$PORT --workers 1 --timeout 120 bot:app
